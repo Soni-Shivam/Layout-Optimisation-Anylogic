@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- System Dynamic modeling macros description file
+	This file defines functions which may be used in expressions
+	of dynamic variables and which are converted into system-dynamic
+	submodels (i.e. sets of flow/aux/stock variables with specific formulas)
+
+	The root element of this document is "Macros". It contains plain list of
+	children "Macro".
+	Each "Macro" may contain:
+		- "Name" element with name text
+		- Ordered list of "Argument" elements with names of macro arguments
+		- "FormulaVariable" element with
+			- "Name"
+			- "Expression"
+		- "StockVariable" element with
+			- "Name"
+			- "Expression"
+			- "InitialValue"
+
+	When writing a macro, please note the following:
+		- macro function may be used in arrayed variable expression, therefore
+		all stocks defined in macro should have a simple name written
+		in the "InitialValue" tag.
+			- If initial value of Stock1 should be equal to "A*B",
+			please create new flow/aux variable Stock1Initial set its
+			expression to "A*B" and write its name into "InitialValue"
+			property of stock.
+			- If stock initial value is some number (e.g. 10), create
+			new flow/aux variable with expression = "10" too.
+-->
+<Macros>
+<Macro>
+	<Name>delay1</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<FormulaVariable>
+		<Name>delay1</Name>
+		<Expression>LV / delayTime</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>LVInitial</Name>
+		<Expression>input * delayTime</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV</Name>
+		<Expression>input - delay1</Expression>
+		<InitialValue>LVInitial</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>delay1</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<Argument>initialValue</Argument>
+	<FormulaVariable>
+		<Name>delay1</Name>
+		<Expression>LV / delayTime</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>LVInitial</Name>
+		<Expression>initialValue * delayTime</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV</Name>
+		<Expression>input - delay1</Expression>
+		<InitialValue>LVInitial</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>delay3</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<FormulaVariable>
+		<Name>delay3</Name>
+		<Expression>LV3 / DL</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>LV3Initial</Name>
+		<Expression>input * DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV3</Name>
+		<Expression>RT2 - delay3</Expression>
+		<InitialValue>LV3Initial</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>RT2</Name>
+		<Expression>LV2 / DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV2</Name>
+		<Expression>RT1 - RT2</Expression>
+		<InitialValue>LV3</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>RT1</Name>
+		<Expression>LV1 / DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV1</Name>
+		<Expression>input - RT1</Expression>
+		<InitialValue>LV3</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>DL</Name>
+		<Expression>delayTime / 3</Expression>
+	</FormulaVariable>
+</Macro>
+<Macro>
+	<Name>delay3</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<Argument>initialValue</Argument>
+	<FormulaVariable>
+		<Name>delay3</Name>
+		<Expression>LV3 / DL</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>LV3Initial</Name>
+		<Expression>initialValue * DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV3</Name>
+		<Expression>RT2 - delay3</Expression>
+		<InitialValue>LV3Initial</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>RT2</Name>
+		<Expression>LV2 / DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV2</Name>
+		<Expression>RT1 - RT2</Expression>
+		<InitialValue>LV3</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>RT1</Name>
+		<Expression>LV1 / DL</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>LV1</Name>
+		<Expression>input - RT1</Expression>
+		<InitialValue>LV3</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>DL</Name>
+		<Expression>delayTime / 3</Expression>
+	</FormulaVariable>
+</Macro>
+<Macro>
+	<Name>forecast</Name>
+	<Argument>input</Argument>
+	<Argument>averageTime</Argument>
+	<Argument>horizon</Argument>
+	<FormulaVariable>
+		<Name>forecast</Name>
+		<Expression>input * (1 + TRD * horizon)</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>TRD</Name>
+		<Expression>zidz(input - AV, averageTime * AV)</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>AV</Name>
+		<Expression>(input - AV) / averageTime</Expression>
+		<InitialValue>input</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>npv</Name>
+	<Argument>stream</Argument>
+	<Argument>discountRate</Argument>
+	<Argument>initialValue</Argument>
+	<Argument>factor</Argument>
+	<Argument>timeStep</Argument>
+	<FormulaVariable>
+		<Name>npv</Name>
+		<Expression>(NpvAccum + timeStep * stream * df) * factor</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>NpvAccum</Name>
+		<Expression>stream * df</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+	<StockVariable>
+		<Name>df</Name>
+		<Expression>-df * discountRate</Expression>
+		<InitialValue>1</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>npve</Name>
+	<Argument>stream</Argument>
+	<Argument>discountRate</Argument>
+	<Argument>initialValue</Argument>
+	<Argument>factor</Argument>
+	<Argument>timeStep</Argument>
+	<FormulaVariable>
+		<Name>npve</Name>
+		<Expression>(NpvAccum + timeStep * stream * df) * factor</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>NpvAccum</Name>
+		<Expression>stream * df</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>dfInitialValue</Name>
+		<Expression>1 / (1 + discountRate * timeStep)</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>df</Name>
+		<Expression>-df * discountRate / (1 + discountRate * timeStep)</Expression>
+		<InitialValue>dfInitialValue</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>smooth</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<StockVariable>
+		<Name>smooth</Name>
+		<Expression>(input - smooth) / delayTime</Expression>
+		<InitialValue>input</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>smooth</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<Argument>initialValue</Argument>
+	<StockVariable>
+		<Name>smooth</Name>
+		<Expression>(input - smooth) / delayTime</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+</Macro>
+<Macro>
+	<Name>smooth3</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<StockVariable>
+		<Name>smooth3</Name>
+		<Expression>(LV2 - smooth3) / DL</Expression>
+		<InitialValue>input</InitialValue>
+	</StockVariable>
+	<StockVariable>
+		<Name>LV2</Name>
+		<Expression>(LV1 - LV2) / DL</Expression>
+		<InitialValue>input</InitialValue>
+	</StockVariable>
+	<StockVariable>
+		<Name>LV1</Name>
+		<Expression>(input - LV1) / DL</Expression>
+		<InitialValue>input</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>DL</Name>
+		<Expression>delayTime / 3</Expression>
+	</FormulaVariable>
+</Macro>
+<Macro>
+	<Name>smooth3</Name>
+	<Argument>input</Argument>
+	<Argument>delayTime</Argument>
+	<Argument>initialValue</Argument>
+	<StockVariable>
+		<Name>smooth3</Name>
+		<Expression>(LV2 - smooth3) / DL</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+	<StockVariable>
+		<Name>LV2</Name>
+		<Expression>(LV1 - LV2) / DL</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+	<StockVariable>
+		<Name>LV1</Name>
+		<Expression>(input - LV1) / DL</Expression>
+		<InitialValue>initialValue</InitialValue>
+	</StockVariable>
+	<FormulaVariable>
+		<Name>DL</Name>
+		<Expression>delayTime / 3</Expression>
+	</FormulaVariable>
+</Macro>
+<Macro>
+	<Name>trend</Name>
+	<Argument>input</Argument>
+	<Argument>averageTime</Argument>
+	<Argument>initialTrend</Argument>
+	<FormulaVariable>
+		<Name>trend</Name>
+		<Expression>zidz(input - avval, averageTime * abs(avval))</Expression>
+	</FormulaVariable>
+	<FormulaVariable>
+		<Name>avvalInitialValue</Name>
+		<Expression>input / (1 + initialTrend * averageTime)</Expression>
+	</FormulaVariable>
+	<StockVariable>
+		<Name>avval</Name>
+		<Expression>(input - avval) / averageTime</Expression>
+		<InitialValue>avvalInitialValue</InitialValue>
+	</StockVariable>
+</Macro>
+</Macros>

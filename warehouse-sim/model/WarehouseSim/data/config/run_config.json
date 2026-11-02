@@ -1,0 +1,47 @@
+{
+  "schema": "whsim.run/1",
+  "horizon_s": 57900,
+  "cutoffs_s": [
+    14400,
+    28800,
+    43200,
+    57600
+  ],
+  "promise_lead_s": 1800,
+  "resources": {
+    "pickers": 6,
+    "packers": 3,
+    "receivers": 2,
+    "putaway": 2
+  },
+  "walk_speed_mps": 1.0,
+  "putaway_speed_mps": 1.2,
+  "recv_buffer_per_cell": 25,
+  "times": {
+    "pick_per_line_s": {
+      "dist": "lognormal",
+      "mean": 12.0,
+      "sd": 5.0
+    },
+    "pack_per_order_s": {
+      "dist": "triangular",
+      "min": 40.0,
+      "mode": 60.0,
+      "max": 120.0
+    },
+    "pack_per_unit_s": {
+      "dist": "const",
+      "value": 4.0
+    },
+    "receive_per_line_s": {
+      "dist": "gamma",
+      "shape": 4.0,
+      "scale": 12.0
+    },
+    "putaway_handling_s": {
+      "dist": "uniform",
+      "min": 20.0,
+      "max": 40.0
+    }
+  }
+}

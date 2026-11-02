@@ -1,0 +1,20 @@
+Manifest-Version: 1.0
+Ant-Version: Apache Ant 1.10.12
+Created-By: 17.0.2+8-86 (Oracle Corporation)
+Bundle-ManifestVersion: 2
+Bundle-Name: Codegen (text data) Plug-in
+Bundle-SymbolicName: com.anylogic.generator.code;singleton:=true
+Bundle-Version: 8.9.10.202609241721
+Bundle-Vendor: The Anylogic Company
+Require-Bundle: com.anylogic.objectmodel8impl,com.anylogic.objectmodel
+ ,com.anylogic.engine.editorapi,com.anylogic.engine.gis,com.anylogic.c
+ ore,com.anylogic.xml,org.eclipse.jdt.core
+Eclipse-LazyStart: true
+Export-Package: com.anylogic.codegen,com.anylogic.codegen.bindings,com
+ .anylogic.internal.codegen,com.anylogic.internal.codegen.actionchart,
+ com.anylogic.internal.codegen.database,com.anylogic.internal.codegen.
+ engine6,com.anylogic.internal.codegen.engine6.macros,com.anylogic.int
+ ernal.codegen.processing,com.anylogic.ui
+Bundle-ClassPath: .
+Bundle-RequiredExecutionEnvironment: JavaSE-17
+

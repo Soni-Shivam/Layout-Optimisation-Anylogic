@@ -1,0 +1,59 @@
+== 1. Python: input files + tests
+day_1.csv: 1361 orders, 3022 order lines, 7 trucks, 362 receipt lines
+day_2.csv: 1373 orders, 3039 order lines, 7 trucks, 363 receipt lines
+day_3.csv: 1408 orders, 3087 order lines, 7 trucks, 365 receipt lines
+day_4.csv: 1346 orders, 2983 order lines, 7 trucks, 362 receipt lines
+day_5.csv: 1350 orders, 3013 order lines, 7 trucks, 366 receipt lines
+I_v_c0_central_abc           nodes  332  slots  576  mean depot->slot   21.7 m  static pick m/order   44.8
+I_v_c0_central_random        nodes  332  slots  576  mean depot->slot   26.7 m  static pick m/order   86.8
+I_v_c1_central_abc           nodes  350  slots  540  mean depot->slot   22.4 m  static pick m/order   43.4
+I_h_c0_central_abc           nodes  334  slots  572  mean depot->slot   41.5 m  static pick m/order   87.8
+U_v_c1_near_out_abc          nodes  350  slots  540  mean depot->slot   23.6 m  static pick m/order   44.7
+L_v_c1_central_abc           nodes  350  slots  540  mean depot->slot   22.4 m  static pick m/order   43.4
+fixtures written to /home/shivam/.config/Claude/scratch-workspaces/36c5efff-0222-43b1-90d2-418b1ee76a96/42350534-e721-415f-8a30-0e4e30d3854e/scratch-2026-11-02-a846c7/warehouse-sim/build/fixtures
+...................                                                      [100%]
+19 passed in 0.30s
+== 2. Java core: compile + tests
+  I_v_c0_central_abc         shipped 1361/1361  held 20  pick m/order 44.8  fulfil mean 304 s  on-time 100.0%  util pick 0.28 pack 0.67
+  I_v_c0_central_random      shipped 1361/1361  held 22  pick m/order 86.8  fulfil mean 363 s  on-time 100.0%  util pick 0.45 pack 0.67
+  I_v_c1_central_abc         shipped 1361/1361  held 20  pick m/order 43.4  fulfil mean 304 s  on-time 100.0%  util pick 0.28 pack 0.67
+  I_h_c0_central_abc         shipped 1361/1361  held 20  pick m/order 87.8  fulfil mean 351 s  on-time 100.0%  util pick 0.45 pack 0.67
+  U_v_c1_near_out_abc        shipped 1361/1361  held 22  pick m/order 44.7  fulfil mean 328 s  on-time 100.0%  util pick 0.28 pack 0.67
+  L_v_c1_central_abc         shipped 1361/1361  held 21  pick m/order 43.4  fulfil mean 331 s  on-time 100.0%  util pick 0.28 pack 0.67
+CoreTest: 16435 passed, 0 failed
+== 3a. AnyLogic model: generate
+wrote /home/shivam/.config/Claude/scratch-workspaces/36c5efff-0222-43b1-90d2-418b1ee76a96/42350534-e721-415f-8a30-0e4e30d3854e/scratch-2026-11-02-a846c7/warehouse-sim/build/WarehouseSim.generated.alp (6 layouts in CompareLayouts) and shadow sources in /home/shivam/.config/Claude/scratch-workspaces/36c5efff-0222-43b1-90d2-418b1ee76a96/42350534-e721-415f-8a30-0e4e30d3854e/scratch-2026-11-02-a846c7/warehouse-sim/build/shadow/warehousesim
+== 3b. compile all model Java against the AnyLogic engine
+   compiled OK
+== 3c. AnyLogic serializer: load + convert + write canonical .alp
+LOADED OK: com.anylogic.serialization.LoadedModel@7726e185
+  getRAWUnconvertedModel -> WarehouseSim - Model
+  getConversionLog !! java.lang.NullPointerException: Log is unavailable until convertToCurrentVersion() is called
+converted; log entries: 0
+Re-serialized to /home/shivam/.config/Claude/scratch-workspaces/36c5efff-0222-43b1-90d2-418b1ee76a96/42350534-e721-415f-8a30-0e4e30d3854e/scratch-2026-11-02-a846c7/warehouse-sim/build/WarehouseSim.rt.alp
+   tags the serializer dropped (none expected):
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/AgentLinkBidirectional
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/AgentLinkType
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/HandleReceiveInConnections
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Id
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Label
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Label/X
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Label/Y
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineArrow
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineArrowPosition
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineColor
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineStyle
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineWidth
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/LineZOrder
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/MessageType
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Name
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/PresentationFlag
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/PublicFlag
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/ShowLabel
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/X
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/AgentLinks/AgentLink/Y
+DROPPED 5 /AnyLogicWorkspace/Model/ActiveObjectClasses/ActiveObjectClass/ConnectionsId
+PROBLEMS: 2
+== done: model/WarehouseSim/WarehouseSim.alp
