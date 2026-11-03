@@ -21,7 +21,8 @@ COLORS = {"#": "#37474F", ".": "#FFFFFF", "A": "#ECEFF1", "S": "#A1887F", "DI": 
 
 
 def draw(ax, lay, weight):
-    m = lay["cell_m"]
+    cw, ch = lay["cell_w"], lay["cell_h"]
+    ox, oy = lay["origin"]
     heat = {}
     for s in lay["slots"]:
         if s["sku"]:
@@ -30,18 +31,20 @@ def draw(ax, lay, weight):
     for r, row in enumerate(lay["grid"]):
         for c, t in enumerate(row.split()):
             col = COLORS[t]
-            ax.add_patch(Rectangle((c * m, r * m), m, m, facecolor=col, edgecolor="white", linewidth=0.3))
+            x0, y0 = ox + c * cw, oy + r * ch
+            ax.add_patch(Rectangle((x0, y0), cw, ch, facecolor=col, edgecolor="white", linewidth=0.2))
             if t == "S" and (r, c) in heat:     # darker = more picks
-                ax.add_patch(Rectangle((c * m, r * m), m, m, facecolor="#4E342E", alpha=0.8 * (heat[(r, c)] / hmax) ** 0.5,
+                ax.add_patch(Rectangle((x0, y0), cw, ch, facecolor="#4E342E", alpha=0.85 * (heat[(r, c)] / hmax) ** 0.5,
                                        linewidth=0))
     for f in lay["facilities"]:
         if f["type"] in ("DI", "DO", "PK", "H"):
             ax.text(f["x"], f["y"], f["id"], ha="center", va="center", fontsize=5, color="white", weight="bold")
-    ax.set_xlim(0, lay["cols"] * m)
-    ax.set_ylim(lay["rows"] * m, 0)
+    ax.set_xlim(ox, ox + lay["cols"] * cw)
+    ax.set_ylim(oy, oy + lay["rows"] * ch)          # y up: the front of the building at the bottom
     ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
+    ax.set_xlabel("x (m)", fontsize=6)
+    ax.set_ylabel("y (m)", fontsize=6)
+    ax.tick_params(labelsize=5)
     st = lay["stats"]
     ax.set_title(f"{lay['id']}\n{st['n_slots']} slots, mean depot->slot {st['mean_depot_to_used_slot_m']} m", fontsize=7)
 
@@ -53,13 +56,13 @@ def main():
     names = (DATA / "layouts" / "index.txt").read_text().split()
     lays = [json.loads((DATA / "layouts" / n).read_text()) for n in names]
     for lay in lays:
-        fig, ax = plt.subplots(figsize=(6, 5))
+        fig, ax = plt.subplots(figsize=(4.5, 8))
         draw(ax, lay, weight)
         fig.savefig(out / f"{lay['id']}.png", dpi=160, bbox_inches="tight")
         plt.close(fig)
     cols = 3
     rows = (len(lays) + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3.4 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(3.6 * cols, 6.2 * rows), squeeze=False)
     for ax in axes.flat[len(lays):]:
         ax.axis("off")
     for ax, lay in zip(axes.flat, lays):

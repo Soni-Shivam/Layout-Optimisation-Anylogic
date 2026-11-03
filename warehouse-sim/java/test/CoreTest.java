@@ -35,6 +35,7 @@ public class CoreTest {
     scenario();
     crossCheck();
     randomStreams();
+    batching();
     endToEnd();
     System.out.println("CoreTest: " + passed + " passed, " + failed + " failed");
     if (failed > 0) System.exit(1);
@@ -114,7 +115,7 @@ public class CoreTest {
     check(pd[0] == L.nx[s34] && pd[1] == L.ny[s34], "motion waits at a stop while picking");
     // path endpoints and reachability
     int[] p = g.path(home, s22);
-    check(p[0] == home && p[p.length - 1] == s22 && p.length == 1 + (int) Math.round(g.dist(home, s22) / L.cellM), "path nodes");
+    check(p[0] == home && p[p.length - 1] == s22 && p.length == 1 + (int) Math.round(g.dist(home, s22) / L.cellW), "path nodes");
   }
 
   static void inventory() {
@@ -170,6 +171,60 @@ public class CoreTest {
     near(12 * c / n, 0, 0.03, "pick and pack streams of the same entity are uncorrelated");
   }
 
+  static ScenarioData.OrderSpec order(int index, String[] skus, int[] qty) {
+    ScenarioData.OrderSpec o = new ScenarioData.OrderSpec();
+    o.index = index; o.id = "o" + index; o.skus = skus; o.qty = qty;
+    return o;
+  }
+
+  /** Cart formation, multi-trip tours and the wave release rule. */
+  static void batching() {
+    Map<String, Integer> open = new LinkedHashMap<String, Integer>();
+    for (String s : new String[]{"X", "Y", "Z"}) open.put(s, 100);
+    RunConfig c = RunConfig.load(DATA + "config/run_config.json");
+    c.cartUnits = 10; c.maxOrders = 0; c.maxWait = 600;
+    Warehouse w = new Warehouse(LayoutData.load("build/fixtures/tiny_layout.json"), c, new ScenarioData(), open, 1);
+    List<ScenarioData.OrderSpec> wait = Arrays.asList(order(0, new String[]{"X"}, new int[]{6}),
+        order(1, new String[]{"Y"}, new int[]{5}), order(2, new String[]{"Z"}, new int[]{4}), order(3, new String[]{"Y"}, new int[]{1}));
+    check(Arrays.equals(w.formBatch(wait), new int[]{0, 2}), "first fit: 6 + 4 = 10 units, the 5-unit order waits");
+    c.maxOrders = 1;
+    check(Arrays.equals(w.formBatch(wait), new int[]{0}), "max_orders = 1");
+    c.maxOrders = 0; c.cartUnits = 0;
+    check(Arrays.equals(w.formBatch(wait), new int[]{0}), "cart_units = 0 is single-order picking");
+    c.cartUnits = 10;
+    // one tour for two orders: the union of their slots, picks timed per order (CRN)
+    Warehouse.PickPlan both = w.planBatch(Arrays.asList(wait.get(0), wait.get(2)), 0);
+    Warehouse.PickPlan a = w.planPick(wait.get(0), 0), b = w.planPick(wait.get(2), 0);
+    check(both.orders == 2 && both.units == 10 && both.trips == 1, "batch counts");
+    check(both.length <= a.length + b.length, "one shared tour is not longer than two separate tours");
+    double dwellBoth = both.duration - both.length / c.walkSpeed, dwellA = a.duration - a.length / c.walkSpeed,
+        dwellB = b.duration - b.length / c.walkSpeed;
+    near(dwellBoth, dwellA + dwellB, 1e-6, "pick times of an order do not depend on its batch");
+    // an order bigger than the cart needs several trips over the same route
+    Warehouse.PickPlan big = w.planPick(order(4, new String[]{"X"}, new int[]{25}), 0);
+    Warehouse.PickPlan small = w.planPick(order(4, new String[]{"X"}, new int[]{5}), 0);
+    check(big.trips == 3, "25 units on a 10-unit cart = 3 trips");
+    near(big.length, 3 * small.length, 1e-9, "trip distance");
+    near(big.duration - small.duration, 2 * small.length / c.walkSpeed, 1e-6, "extra trips add walking only");
+    // an oversize order with several SKUs is split into cart-sized chunks: each trip visits only its own slots
+    ScenarioData.OrderSpec multi = order(5, new String[]{"X", "Y", "Z"}, new int[]{6, 6, 6});
+    Warehouse.PickPlan mp = w.planPick(multi, 0);
+    double sum = w.planPick(order(5, new String[]{"X"}, new int[]{6}), 0).length
+        + w.planPick(order(5, new String[]{"Y"}, new int[]{6}), 0).length + w.planPick(order(5, new String[]{"Z"}, new int[]{6}), 0).length;
+    check(mp.trips == 3, "18 units in lines of 6 on a 10-unit cart = 3 one-line trips");
+    near(mp.length, sum, 1e-9, "split trips: sum of the chunk tours, not trips x the whole tour");
+    double dwellM = mp.duration - mp.length / c.walkSpeed;
+    Warehouse.PickPlan whole = w.planPick(order(5, new String[]{"X", "Y", "Z"}, new int[]{3, 3, 3}), 0);
+    near(dwellM, whole.duration - whole.length / c.walkSpeed, 1e-6, "each line is picked once, whatever the split");
+    // wave release: wait for a full cart or max_wait_s
+    List<ScenarioData.OrderSpec> two = Arrays.asList(wait.get(1), wait.get(3));
+    check(!w.releaseNow(two, 0, 100), "6 of 10 units after 100 s: keep waiting");
+    check(w.releaseNow(two, 0, 600), "oldest waited max_wait_s: release");
+    check(w.releaseNow(wait, 0, 1), "a full cart is waiting: release");
+    c.cartUnits = 0;
+    check(w.releaseNow(two, 0, 0), "single-order picking releases at once");
+  }
+
   /** Java Router == Python pick_tour on every order of day_1, on every candidate layout. */
   static void crossCheck() throws Exception {
     ScenarioData day = ScenarioData.load(DATA + "scenarios/day_1.csv");
@@ -216,6 +271,7 @@ public class CoreTest {
       long pickedUnits = 0;
       for (ScenarioData.OrderSpec o : w.scenario.orders) if (!Double.isNaN(k.oPickEnd[o.index])) pickedUnits += o.units();
       check(pickedUnits == pick, id + ": units picked = units of picked orders");
+      check(k.tourOrders == (Integer) s.get("orders_picked") && k.tours > 0, id + ": every picked order was on exactly one cart");
       int arrived = (Integer) s.get("orders_arrived"), shipped = (Integer) s.get("orders_shipped");
       check(arrived == w.scenario.orders.size(), id + ": every order arrives");
       check(shipped + (Integer) s.get("backlog_end") == arrived && shipped > 0.9 * arrived, id + ": most orders ship (" + shipped + "/" + arrived + ")");

@@ -1,0 +1,6 @@
+# regenerable by python3 -m whsim.optimize (one layout JSON per evaluated design, ~300 MB)
+results/opt/layouts/
+# debug / cache
+build/dbg/
+__pycache__/
+.pytest_cache/

@@ -331,11 +331,16 @@ public static final class Dist {
 }
 
 // ===== RunConfig (from java/src/wh/RunConfig.java) =====
-/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, service times. */
+/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, batching, service times. */
 public static final class RunConfig {
   public double horizon, promiseLead, walkSpeed, putawaySpeed;
   public double[] cutoffs;
   public int pickers, packers, receivers, putaway, recvPerCell;
+  /** Batch picking: a cart holds cartUnits units (0 = single-order picking), at most maxOrders orders (0 = no limit). */
+  public int cartUnits, maxOrders;
+  /** Wave release: a cart leaves when the waiting units fill it or the oldest waiting order has waited maxWait s;
+   *  the rule is re-checked every tick s. */
+  public double maxWait, tick;
   public Dist pickPerLine, packPerOrder, packPerUnit, receivePerLine, putawayHandling;
 
   public static RunConfig load(String path) { return parse(Json.read(path)); }
@@ -358,6 +363,11 @@ public static final class RunConfig {
     c.walkSpeed = Json.num(Json.get(m, "walk_speed_mps"), "walk_speed_mps");
     c.putawaySpeed = Json.num(Json.get(m, "putaway_speed_mps"), "putaway_speed_mps");
     c.recvPerCell = Json.integer(Json.get(m, "recv_buffer_per_cell"), "recv_buffer_per_cell");
+    Map<String, Object> b = Json.obj(Json.get(m, "batching"), "batching");
+    c.cartUnits = Json.integer(Json.get(b, "cart_units"), "batching.cart_units");
+    c.maxOrders = Json.integer(Json.get(b, "max_orders"), "batching.max_orders");
+    c.maxWait = Json.num(Json.get(b, "max_wait_s"), "batching.max_wait_s");
+    c.tick = Json.num(Json.get(b, "tick_s"), "batching.tick_s");
     Map<String, Object> t = Json.obj(Json.get(m, "times"), "times");
     c.pickPerLine = Dist.of(Json.get(t, "pick_per_line_s"), "times.pick_per_line_s");
     c.packPerOrder = Dist.of(Json.get(t, "pack_per_order_s"), "times.pack_per_order_s");
@@ -381,6 +391,8 @@ public static final class RunConfig {
       throw new IllegalArgumentException("every resource count must be >= 1");
     if (!(walkSpeed > 0 && putawaySpeed > 0)) throw new IllegalArgumentException("speeds must be > 0");
     if (recvPerCell < 1) throw new IllegalArgumentException("recv_buffer_per_cell must be >= 1");
+    if (cartUnits < 0 || maxOrders < 0) throw new IllegalArgumentException("batching.cart_units and max_orders must be >= 0");
+    if (maxWait < 0 || !(tick > 0)) throw new IllegalArgumentException("batching.max_wait_s must be >= 0 and tick_s > 0");
   }
 
   /** First cut-off at or after t, or +infinity if none is left today. */
@@ -403,7 +415,7 @@ public static final class LayoutData {
   }
 
   public String id, slotting;
-  public double cellM;
+  public double cellW, cellH, originX, originY;   // metres; cell (r, c) centre = origin + ((c + .5) cellW, (r + .5) cellH)
   public int rows, cols;
   public String[][] grid;
   // aisle graph
@@ -431,7 +443,11 @@ public static final class LayoutData {
     LayoutData L = new LayoutData();
     L.id = Json.str(Json.get(m, "id"), "id");
     L.slotting = Json.str(Json.get(m, "slotting"), "slotting");
-    L.cellM = Json.num(Json.get(m, "cell_m"), "cell_m");
+    L.cellW = Json.num(Json.get(m, "cell_w"), "cell_w");
+    L.cellH = Json.num(Json.get(m, "cell_h"), "cell_h");
+    List<Object> org = Json.arr(Json.get(m, "origin"), "origin");
+    L.originX = Json.num(org.get(0), "origin x");
+    L.originY = Json.num(org.get(1), "origin y");
     L.rows = Json.integer(Json.get(m, "rows"), "rows");
     L.cols = Json.integer(Json.get(m, "cols"), "cols");
     List<Object> g = Json.arr(Json.get(m, "grid"), "grid");
@@ -529,8 +545,8 @@ public static final class LayoutData {
     return s == null ? -1 : slotNode[s];
   }
 
-  public double widthM() { return cols * cellM; }
-  public double heightM() { return rows * cellM; }
+  public double widthM() { return cols * cellW; }
+  public double heightM() { return rows * cellH; }
 }
 
 // ===== PathGraph (from java/src/wh/PathGraph.java) =====
@@ -623,7 +639,9 @@ public static final class Router {
     Tour t = new Tour();
     t.stops = order;
     t.station = st;
-    t.length = len + d[stations[st]] + g.dist(stations[st], home);
+    len += d[stations[st]];                         // two separate additions, as in python pick_tour
+    len += g.dist(stations[st], home);
+    t.length = len;
     return t;
   }
 
@@ -955,34 +973,121 @@ public static final class Warehouse {
 
   // ------------------------------------------------------------------ picking
   public static final class PickPlan {
-    public double duration, length;
-    public int station, stops;
+    public double duration, length;   // seconds; metres walked (all trips)
+    public int station, stops, trips, orders, units;
     public Router.Motion motion;
   }
 
-  /** Single-order picking tour starting at the depot at time t0: walk + one pick time per order line. */
-  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
-    Random r = rng(S_PICK, o.index);
-    Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
-    int[] nodes = new int[o.skus.length];
-    for (int i = 0; i < o.skus.length; i++) {
-      nodes[i] = layout.nodeOfSku(o.skus[i]);
-      dwell.merge(nodes[i], cfg.pickPerLine.sample(r), Double::sum);   // lines sampled in order-line order
+  /**
+   * Batch (wave) formation, greedy first-fit in release order: the oldest waiting order always goes on the
+   * cart; every later order that still fits (cart_units, max_orders) is added. With cart_units = 0 every
+   * batch is one order (single-order picking). Returns positions in the waiting list, ascending.
+   */
+  public int[] formBatch(List<ScenarioData.OrderSpec> waiting) {
+    if (waiting.isEmpty()) return new int[0];
+    List<Integer> pos = new ArrayList<Integer>();
+    pos.add(0);
+    int units = waiting.get(0).units();
+    for (int i = 1; i < waiting.size() && cfg.cartUnits > 0; i++) {
+      if (cfg.maxOrders > 0 && pos.size() >= cfg.maxOrders) break;
+      int u = waiting.get(i).units();
+      if (units + u <= cfg.cartUnits) { pos.add(i); units += u; }
     }
-    Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
-    int k = tour.stops.length;
-    int[] targets = new int[k + 2];
-    double[] dw = new double[k + 2];
-    for (int i = 0; i < k; i++) { targets[i] = tour.stops[i]; dw[i] = dwell.get(tour.stops[i]); }
-    targets[k] = layout.stations[tour.station];
-    targets[k + 1] = layout.home;
+    int[] out = new int[pos.size()];
+    for (int i = 0; i < out.length; i++) out[i] = pos.get(i);
+    return out;
+  }
+
+  /**
+   * The picking tour(s) of a batch, starting at the depot at t0. A batch that fits the cart is ONE trip:
+   * nearest-neighbour route over all its distinct slots, then the nearest packing station, then back to the
+   * depot. A batch larger than the cart (only possible for a single order bigger than cart_units) is split
+   * like the real WMS splits such orders over several waves: its lines are cut, in line order, into chunks of
+   * at most cart_units units (one trip each), and a line bigger than the cart takes ceil(qty / cart_units)
+   * trips to its slot. Pick time: one draw per order line from that ORDER's own stream, spent on the trip that
+   * picks the line (so an order's pick times do not depend on its batch).
+   */
+  public PickPlan planBatch(List<ScenarioData.OrderSpec> batch, double t0) {
+    List<List<int[]>> trips = new ArrayList<List<int[]>>();      // per trip: {node, line number}
+    List<Double> lineDwell = new ArrayList<Double>();
+    int units = 0;
+    for (ScenarioData.OrderSpec o : batch) units += o.units();
+    boolean split = cfg.cartUnits > 0 && units > cfg.cartUnits;
+    List<int[]> cur = new ArrayList<int[]>();
+    int curUnits = 0;
+    for (ScenarioData.OrderSpec o : batch) {
+      Random r = rng(S_PICK, o.index);
+      for (int i = 0; i < o.skus.length; i++) {
+        int v = layout.nodeOfSku(o.skus[i]);
+        int line = lineDwell.size();
+        lineDwell.add(cfg.pickPerLine.sample(r));
+        int q = o.qty[i];
+        if (!split) { cur.add(new int[]{v, line}); continue; }
+        if (q > cfg.cartUnits) {                                 // its own trips: picks on the first one
+          if (!cur.isEmpty()) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+          int n = (q + cfg.cartUnits - 1) / cfg.cartUnits;
+          for (int k = 0; k < n; k++) {
+            List<int[]> t = new ArrayList<int[]>();
+            t.add(new int[]{v, k == 0 ? line : -1});
+            trips.add(t);
+          }
+          continue;
+        }
+        if (curUnits + q > cfg.cartUnits) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+        cur.add(new int[]{v, line});
+        curUnits += q;
+      }
+    }
+    if (!cur.isEmpty()) trips.add(cur);
+    List<Integer> targets = new ArrayList<Integer>();
+    List<Double> dwells = new ArrayList<Double>();
     PickPlan p = new PickPlan();
-    p.motion = Router.walk(graph, layout, layout.home, targets, dw, cfg.walkSpeed, t0);
+    p.station = -1;
+    for (List<int[]> trip : trips) {
+      Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
+      int[] nodes = new int[trip.size()];
+      for (int i = 0; i < nodes.length; i++) {
+        nodes[i] = trip.get(i)[0];
+        dwell.merge(nodes[i], trip.get(i)[1] >= 0 ? lineDwell.get(trip.get(i)[1]) : 0.0, Double::sum);
+      }
+      Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
+      for (int v : tour.stops) { targets.add(v); dwells.add(dwell.get(v)); }
+      targets.add(layout.stations[tour.station]);
+      dwells.add(0.0);
+      targets.add(layout.home);
+      dwells.add(0.0);
+      p.length += tour.length;
+      p.stops += tour.stops.length;
+      if (p.station < 0) p.station = tour.station;
+    }
+    int[] tg = new int[targets.size()];
+    double[] dw = new double[targets.size()];
+    for (int i = 0; i < tg.length; i++) { tg[i] = targets.get(i); dw[i] = dwells.get(i); }
+    p.motion = Router.walk(graph, layout, layout.home, tg, dw, cfg.walkSpeed, t0);
     p.duration = p.motion.end() - t0;
-    p.length = tour.length;
-    p.station = tour.station;
-    p.stops = k;
+    p.trips = trips.size();
+    p.orders = batch.size();
+    p.units = units;
     return p;
+  }
+
+  /**
+   * Wave release rule: release a cart now if picking is single-order, or the waiting orders fill a cart,
+   * or the oldest one was released at least max_wait_s ago. releasedAt = release time of waiting.get(0).
+   */
+  public boolean releaseNow(List<ScenarioData.OrderSpec> waiting, double oldestReleasedAt, double now) {
+    if (waiting.isEmpty()) return false;
+    if (cfg.cartUnits == 0 || now - oldestReleasedAt >= cfg.maxWait) return true;
+    int units = 0;
+    for (ScenarioData.OrderSpec o : waiting) units += o.units();
+    return units >= cfg.cartUnits || (cfg.maxOrders > 0 && waiting.size() >= cfg.maxOrders);
+  }
+
+  /** Single-order tour (a batch of one). */
+  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
+    List<ScenarioData.OrderSpec> one = new ArrayList<ScenarioData.OrderSpec>();
+    one.add(o);
+    return planBatch(one, t0);
   }
 
   public double packTime(ScenarioData.OrderSpec o) {
@@ -1044,6 +1149,9 @@ public static final class Kpi {
   public final Stats.TimeLevel held = new Stats.TimeLevel(), recvBuffer = new Stats.TimeLevel(), staging = new Stats.TimeLevel(),
       inSystem = new Stats.TimeLevel();
   public int recvOverflows;
+  // picking tours (batches)
+  public int tours, tourOrders, tourUnits, tourTrips;
+  public double tourM, tourTime;
 
   public Kpi(Warehouse w) {
     this.w = w;
@@ -1072,9 +1180,19 @@ public static final class Kpi {
   public void pickStarted(ScenarioData.OrderSpec o, double t) { oPickStart[o.index] = t; }
   public void pickEnded(ScenarioData.OrderSpec o, double t, Warehouse.PickPlan p) {
     oPickEnd[o.index] = t;
-    oPickM[o.index] = p.length;
+    oPickM[o.index] = p.length / p.orders;      // the order's share of its tour
     oStation[o.index] = p.station;
   }
+  /** Once per picking tour, when it ends. */
+  public void tourEnded(Warehouse.PickPlan p) {
+    tours++;
+    tourOrders += p.orders;
+    tourUnits += p.units;
+    tourTrips += p.trips;
+    tourM += p.length;
+    tourTime += p.duration;
+  }
+
   public void orderPacked(ScenarioData.OrderSpec o, double t) { oPacked[o.index] = t; staging.add(t, 1); }
   public void orderShipped(ScenarioData.OrderSpec o, double t) {
     oShip[o.index] = t;
@@ -1133,6 +1251,12 @@ public static final class Kpi {
     s.put("on_time_pct", dueToday > 0 ? 100.0 * onTime / dueToday : Double.NaN);
     s.put("held_orders", heldN); s.put("hold_mean_s", Stats.mean(hold));
     s.put("pick_m_per_order", Stats.mean(pickM)); s.put("pick_m_total", pickTotal);
+    s.put("tours", tours);
+    s.put("orders_per_tour", tours > 0 ? (double) tourOrders / tours : Double.NaN);
+    s.put("units_per_tour", tours > 0 ? (double) tourUnits / tours : Double.NaN);
+    s.put("tour_m_mean", tours > 0 ? tourM / tours : Double.NaN);
+    s.put("tour_s_mean", tours > 0 ? tourTime / tours : Double.NaN);
+    s.put("cart_units", w.cfg.cartUnits);
     s.put("receipt_lines", lines); s.put("receipt_lines_put", put); s.put("put_m_total", putM);
     s.put("recv_buffer_cap", w.recvBufferCapacity());
     s.put("recv_buffer_max", recvBuffer.max()); s.put("recv_buffer_mean", recvBuffer.mean(T));
@@ -1295,7 +1419,7 @@ public static final class Kpi {
 			<CurrentLevel>1762300000004</CurrentLevel>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000065</Id>
+					<Id>1762300000081</Id>
 					<Name><![CDATA[wh]]></Name>
 					<X>1650</X><Y>20</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1310,7 +1434,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000066</Id>
+					<Id>1762300000082</Id>
 					<Name><![CDATA[kpi]]></Name>
 					<X>1650</X><Y>42</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1325,7 +1449,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000067</Id>
+					<Id>1762300000083</Id>
 					<Name><![CDATA[staff]]></Name>
 					<X>1650</X><Y>64</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1340,7 +1464,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000068</Id>
+					<Id>1762300000084</Id>
 					<Name><![CDATA[busy]]></Name>
 					<X>1650</X><Y>86</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1355,7 +1479,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000069</Id>
+					<Id>1762300000085</Id>
 					<Name><![CDATA[workers]]></Name>
 					<X>1650</X><Y>108</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1370,7 +1494,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000070</Id>
+					<Id>1762300000086</Id>
 					<Name><![CDATA[roleCount]]></Name>
 					<X>1650</X><Y>130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1385,7 +1509,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000071</Id>
+					<Id>1762300000087</Id>
 					<Name><![CDATA[layoutPath]]></Name>
 					<X>1650</X><Y>152</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1400,7 +1524,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000072</Id>
+					<Id>1762300000088</Id>
 					<Name><![CDATA[scenarioPath]]></Name>
 					<X>1650</X><Y>174</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1415,7 +1539,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000073</Id>
+					<Id>1762300000089</Id>
 					<Name><![CDATA[px]]></Name>
 					<X>1650</X><Y>196</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1430,7 +1554,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000074</Id>
+					<Id>1762300000090</Id>
 					<Name><![CDATA[ox]]></Name>
 					<X>1650</X><Y>218</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1445,7 +1569,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000075</Id>
+					<Id>1762300000091</Id>
 					<Name><![CDATA[oy]]></Name>
 					<X>1650</X><Y>240</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1460,7 +1584,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000076</Id>
+					<Id>1762300000092</Id>
 					<Name><![CDATA[nArrived]]></Name>
 					<X>1650</X><Y>262</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1475,7 +1599,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000077</Id>
+					<Id>1762300000093</Id>
 					<Name><![CDATA[nPicked]]></Name>
 					<X>1650</X><Y>284</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1490,7 +1614,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000078</Id>
+					<Id>1762300000094</Id>
 					<Name><![CDATA[nPacked]]></Name>
 					<X>1650</X><Y>306</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1505,7 +1629,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000079</Id>
+					<Id>1762300000095</Id>
 					<Name><![CDATA[nShipped]]></Name>
 					<X>1650</X><Y>328</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1520,9 +1644,39 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000080</Id>
-					<Name><![CDATA[done]]></Name>
+					<Id>1762300000096</Id>
+					<Name><![CDATA[nTours]]></Name>
 					<X>1650</X><Y>350</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[int]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[0]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+				<Variable Class="PlainVariable">
+					<Id>1762300000097</Id>
+					<Name><![CDATA[pending]]></Name>
+					<X>1650</X><Y>372</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[ArrayList<Order>]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[new ArrayList<Order>()]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+				<Variable Class="PlainVariable">
+					<Id>1762300000098</Id>
+					<Name><![CDATA[done]]></Name>
+					<X>1650</X><Y>394</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -1535,7 +1689,7 @@ public static final class Kpi {
 					</Properties>
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000041</Id>
+					<Id>1762300000053</Id>
 					<Name><![CDATA[layoutFile]]></Name>
 					<X>1450</X><Y>20</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1547,151 +1701,7 @@ public static final class Kpi {
 						<UnitType><![CDATA[NONE]]></UnitType>
 						<SdArray>false</SdArray>
 						<DefaultValue Class="CodeValue">
-							<Code><![CDATA["data/layouts/I_v_c0_central_abc.json"]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000042</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000043</Id>
-					<Name><![CDATA[layoutIndex]]></Name>
-					<X>1450</X><Y>42</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[int]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA[-1]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000044</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000045</Id>
-					<Name><![CDATA[scenarioFile]]></Name>
-					<X>1450</X><Y>64</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[String]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA["data/scenarios/day_{seed}.csv"]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000046</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000047</Id>
-					<Name><![CDATA[skuFile]]></Name>
-					<X>1450</X><Y>86</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[String]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA["data/skus.csv"]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000048</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000049</Id>
-					<Name><![CDATA[configFile]]></Name>
-					<X>1450</X><Y>108</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[String]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA["data/config/run_config.json"]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000050</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000051</Id>
-					<Name><![CDATA[seed]]></Name>
-					<X>1450</X><Y>130</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[int]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA[1]]></Code>
-						</DefaultValue>
-						<ParameterEditor>
-							<Id>1762300000052</Id>
-							<EditorContolType>TEXT_BOX</EditorContolType>
-							<MinSliderValue><![CDATA[0]]></MinSliderValue>
-							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
-							<DelimeterType>NO_DELIMETER</DelimeterType>
-						</ParameterEditor>
-					</Properties>                 
-				</Variable>
-				<Variable Class="Parameter">
-					<Id>1762300000053</Id>
-					<Name><![CDATA[nPickers]]></Name>
-					<X>1450</X><Y>152</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
-						<Type><![CDATA[int]]></Type>
-						<UnitType><![CDATA[NONE]]></UnitType>
-						<SdArray>false</SdArray>
-						<DefaultValue Class="CodeValue">
-							<Code><![CDATA[-1]]></Code>
+							<Code><![CDATA["data/layouts/D40.3_63.1-P3-Xnone-asis.json"]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
 							<Id>1762300000054</Id>
@@ -1704,8 +1714,8 @@ public static final class Kpi {
 				</Variable>
 				<Variable Class="Parameter">
 					<Id>1762300000055</Id>
-					<Name><![CDATA[nPackers]]></Name>
-					<X>1450</X><Y>174</Y>
+					<Name><![CDATA[layoutIndex]]></Name>
+					<X>1450</X><Y>42</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -1728,7 +1738,151 @@ public static final class Kpi {
 				</Variable>
 				<Variable Class="Parameter">
 					<Id>1762300000057</Id>
-					<Name><![CDATA[nReceivers]]></Name>
+					<Name><![CDATA[scenarioFile]]></Name>
+					<X>1450</X><Y>64</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[String]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA["data/scenarios/day_{seed}.csv"]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000058</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000059</Id>
+					<Name><![CDATA[realDay]]></Name>
+					<X>1450</X><Y>86</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[int]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[0]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000060</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000061</Id>
+					<Name><![CDATA[skuFile]]></Name>
+					<X>1450</X><Y>108</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[String]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA["data/skus.csv"]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000062</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000063</Id>
+					<Name><![CDATA[configFile]]></Name>
+					<X>1450</X><Y>130</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[String]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA["data/config/run_config.json"]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000064</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000065</Id>
+					<Name><![CDATA[seed]]></Name>
+					<X>1450</X><Y>152</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[int]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[1]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000066</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000067</Id>
+					<Name><![CDATA[nPickers]]></Name>
+					<X>1450</X><Y>174</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[int]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[-1]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000068</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000069</Id>
+					<Name><![CDATA[nPackers]]></Name>
 					<X>1450</X><Y>196</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -1742,7 +1896,7 @@ public static final class Kpi {
 							<Code><![CDATA[-1]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000058</Id>
+							<Id>1762300000070</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -1751,8 +1905,8 @@ public static final class Kpi {
 					</Properties>                 
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000059</Id>
-					<Name><![CDATA[nPutaway]]></Name>
+					<Id>1762300000071</Id>
+					<Name><![CDATA[nReceivers]]></Name>
 					<X>1450</X><Y>218</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -1766,7 +1920,7 @@ public static final class Kpi {
 							<Code><![CDATA[-1]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000060</Id>
+							<Id>1762300000072</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -1775,9 +1929,57 @@ public static final class Kpi {
 					</Properties>                 
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000061</Id>
-					<Name><![CDATA[writeOrders]]></Name>
+					<Id>1762300000073</Id>
+					<Name><![CDATA[nPutaway]]></Name>
 					<X>1450</X><Y>240</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[int]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[-1]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000074</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000075</Id>
+					<Name><![CDATA[cartUnits]]></Name>
+					<X>1450</X><Y>262</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[int]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[-1]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000076</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000077</Id>
+					<Name><![CDATA[writeOrders]]></Name>
+					<X>1450</X><Y>284</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -1790,7 +1992,7 @@ public static final class Kpi {
 							<Code><![CDATA[true]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000062</Id>
+							<Id>1762300000078</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -1799,9 +2001,9 @@ public static final class Kpi {
 					</Properties>                 
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000063</Id>
+					<Id>1762300000079</Id>
 					<Name><![CDATA[resultsDir]]></Name>
-					<X>1450</X><Y>262</Y>
+					<X>1450</X><Y>306</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -1814,7 +2016,7 @@ public static final class Kpi {
 							<Code><![CDATA["results"]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000064</Id>
+							<Id>1762300000080</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -1825,7 +2027,7 @@ public static final class Kpi {
 			</Variables>
 			<Connectors>
 				<Connector>
-					<Id>1762300000125</Id>
+					<Id>1762300000154</Id>
 					<Name><![CDATA[connector0]]></Name>
 					<X>50</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1858,7 +2060,7 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000126</Id>
+					<Id>1762300000155</Id>
 					<Name><![CDATA[connector1]]></Name>
 					<X>140</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1891,7 +2093,7 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000127</Id>
+					<Id>1762300000156</Id>
 					<Name><![CDATA[connector2]]></Name>
 					<X>230</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1911,20 +2113,20 @@ public static final class Kpi {
 					<TargetEmbeddedObjectReference>
 						<PackageName><![CDATA[warehousesim]]></PackageName>
 						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickSeize]]></ItemName>
+						<ItemName><![CDATA[pickPool]]></ItemName>
 					</TargetEmbeddedObjectReference>
 					<TargetConnectableItemReference>
 						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Seize]]></ClassName>
+						<ClassName><![CDATA[Wait]]></ClassName>
 						<ItemName><![CDATA[in]]></ItemName>
 					</TargetConnectableItemReference>
 					<Points>
 						<Point><X>0</X><Y>0</Y></Point>
-						<Point><X>70</X><Y>0</Y></Point>
+						<Point><X>160</X><Y>0</Y></Point>
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000128</Id>
+					<Id>1762300000157</Id>
 					<Name><![CDATA[connector3]]></Name>
 					<X>230</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1957,7 +2159,7 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000129</Id>
+					<Id>1762300000158</Id>
 					<Name><![CDATA[connector4]]></Name>
 					<X>275</X><Y>970</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -1977,54 +2179,21 @@ public static final class Kpi {
 					<TargetEmbeddedObjectReference>
 						<PackageName><![CDATA[warehousesim]]></PackageName>
 						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickSeize]]></ItemName>
+						<ItemName><![CDATA[pickPool]]></ItemName>
 					</TargetEmbeddedObjectReference>
 					<TargetConnectableItemReference>
 						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Seize]]></ClassName>
+						<ClassName><![CDATA[Wait]]></ClassName>
 						<ItemName><![CDATA[in]]></ItemName>
 					</TargetConnectableItemReference>
 					<Points>
 						<Point><X>0</X><Y>0</Y></Point>
-						<Point><X>25</X><Y>-70</Y></Point>
+						<Point><X>115</X><Y>-70</Y></Point>
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000130</Id>
+					<Id>1762300000159</Id>
 					<Name><![CDATA[connector5]]></Name>
-					<X>320</X><Y>900</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>false</ShowLabel>
-					<SourceEmbeddedObjectReference>
-						<PackageName><![CDATA[warehousesim]]></PackageName>
-						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickSeize]]></ItemName>
-					</SourceEmbeddedObjectReference>
-					<SourceConnectableItemReference>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Seize]]></ClassName>
-						<ItemName><![CDATA[out]]></ItemName>
-					</SourceConnectableItemReference>
-					<TargetEmbeddedObjectReference>
-						<PackageName><![CDATA[warehousesim]]></PackageName>
-						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickWalk]]></ItemName>
-					</TargetEmbeddedObjectReference>
-					<TargetConnectableItemReference>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Delay]]></ClassName>
-						<ItemName><![CDATA[in]]></ItemName>
-					</TargetConnectableItemReference>
-					<Points>
-						<Point><X>0</X><Y>0</Y></Point>
-						<Point><X>70</X><Y>0</Y></Point>
-					</Points>
-				</Connector>
-				<Connector>
-					<Id>1762300000131</Id>
-					<Name><![CDATA[connector6]]></Name>
 					<X>410</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -2033,44 +2202,11 @@ public static final class Kpi {
 					<SourceEmbeddedObjectReference>
 						<PackageName><![CDATA[warehousesim]]></PackageName>
 						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickWalk]]></ItemName>
+						<ItemName><![CDATA[pickPool]]></ItemName>
 					</SourceEmbeddedObjectReference>
 					<SourceConnectableItemReference>
 						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Delay]]></ClassName>
-						<ItemName><![CDATA[out]]></ItemName>
-					</SourceConnectableItemReference>
-					<TargetEmbeddedObjectReference>
-						<PackageName><![CDATA[warehousesim]]></PackageName>
-						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickRelease]]></ItemName>
-					</TargetEmbeddedObjectReference>
-					<TargetConnectableItemReference>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Release]]></ClassName>
-						<ItemName><![CDATA[in]]></ItemName>
-					</TargetConnectableItemReference>
-					<Points>
-						<Point><X>0</X><Y>0</Y></Point>
-						<Point><X>70</X><Y>0</Y></Point>
-					</Points>
-				</Connector>
-				<Connector>
-					<Id>1762300000132</Id>
-					<Name><![CDATA[connector7]]></Name>
-					<X>500</X><Y>900</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>false</ShowLabel>
-					<SourceEmbeddedObjectReference>
-						<PackageName><![CDATA[warehousesim]]></PackageName>
-						<ClassName><![CDATA[Main]]></ClassName>
-						<ItemName><![CDATA[pickRelease]]></ItemName>
-					</SourceEmbeddedObjectReference>
-					<SourceConnectableItemReference>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Release]]></ClassName>
+						<ClassName><![CDATA[Wait]]></ClassName>
 						<ItemName><![CDATA[out]]></ItemName>
 					</SourceConnectableItemReference>
 					<TargetEmbeddedObjectReference>
@@ -2085,12 +2221,12 @@ public static final class Kpi {
 					</TargetConnectableItemReference>
 					<Points>
 						<Point><X>0</X><Y>0</Y></Point>
-						<Point><X>70</X><Y>0</Y></Point>
+						<Point><X>160</X><Y>0</Y></Point>
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000133</Id>
-					<Name><![CDATA[connector8]]></Name>
+					<Id>1762300000160</Id>
+					<Name><![CDATA[connector6]]></Name>
 					<X>590</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -2122,8 +2258,8 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000134</Id>
-					<Name><![CDATA[connector9]]></Name>
+					<Id>1762300000161</Id>
+					<Name><![CDATA[connector7]]></Name>
 					<X>680</X><Y>900</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -2155,9 +2291,141 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000135</Id>
+					<Id>1762300000162</Id>
+					<Name><![CDATA[connector8]]></Name>
+					<X>320</X><Y>1010</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourIn]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Enter]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourSeize]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Seize]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
+				<Connector>
+					<Id>1762300000163</Id>
+					<Name><![CDATA[connector9]]></Name>
+					<X>410</X><Y>1010</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourSeize]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Seize]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourWalk]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
+				<Connector>
+					<Id>1762300000164</Id>
 					<Name><![CDATA[connector10]]></Name>
-					<X>50</X><Y>1070</Y>
+					<X>500</X><Y>1010</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourWalk]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourRelease]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Release]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
+				<Connector>
+					<Id>1762300000165</Id>
+					<Name><![CDATA[connector11]]></Name>
+					<X>590</X><Y>1010</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourRelease]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Release]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tourDone]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Sink]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
+				<Connector>
+					<Id>1762300000166</Id>
+					<Name><![CDATA[connector12]]></Name>
+					<X>50</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2188,9 +2456,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000136</Id>
-					<Name><![CDATA[connector11]]></Name>
-					<X>140</X><Y>1070</Y>
+					<Id>1762300000167</Id>
+					<Name><![CDATA[connector13]]></Name>
+					<X>140</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2221,9 +2489,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000137</Id>
-					<Name><![CDATA[connector12]]></Name>
-					<X>230</X><Y>1070</Y>
+					<Id>1762300000168</Id>
+					<Name><![CDATA[connector14]]></Name>
+					<X>230</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2254,9 +2522,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000138</Id>
-					<Name><![CDATA[connector13]]></Name>
-					<X>320</X><Y>1070</Y>
+					<Id>1762300000169</Id>
+					<Name><![CDATA[connector15]]></Name>
+					<X>320</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2287,9 +2555,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000139</Id>
-					<Name><![CDATA[connector14]]></Name>
-					<X>410</X><Y>1070</Y>
+					<Id>1762300000170</Id>
+					<Name><![CDATA[connector16]]></Name>
+					<X>410</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2320,9 +2588,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000140</Id>
-					<Name><![CDATA[connector15]]></Name>
-					<X>500</X><Y>1070</Y>
+					<Id>1762300000171</Id>
+					<Name><![CDATA[connector17]]></Name>
+					<X>500</X><Y>1130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2353,9 +2621,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000141</Id>
-					<Name><![CDATA[connector16]]></Name>
-					<X>50</X><Y>1180</Y>
+					<Id>1762300000172</Id>
+					<Name><![CDATA[connector18]]></Name>
+					<X>50</X><Y>1240</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2386,9 +2654,9 @@ public static final class Kpi {
 					</Points>
 				</Connector>
 				<Connector>
-					<Id>1762300000142</Id>
-					<Name><![CDATA[connector17]]></Name>
-					<X>140</X><Y>1180</Y>
+					<Id>1762300000173</Id>
+					<Name><![CDATA[connector19]]></Name>
+					<X>140</X><Y>1240</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2418,12 +2686,78 @@ public static final class Kpi {
 						<Point><X>70</X><Y>0</Y></Point>
 					</Points>
 				</Connector>
+				<Connector>
+					<Id>1762300000174</Id>
+					<Name><![CDATA[connector20]]></Name>
+					<X>410</X><Y>1240</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tickIn]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Enter]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tick]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
+				<Connector>
+					<Id>1762300000175</Id>
+					<Name><![CDATA[connector21]]></Name>
+					<X>500</X><Y>1240</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<SourceEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tick]]></ItemName>
+					</SourceEmbeddedObjectReference>
+					<SourceConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+						<ItemName><![CDATA[out]]></ItemName>
+					</SourceConnectableItemReference>
+					<TargetEmbeddedObjectReference>
+						<PackageName><![CDATA[warehousesim]]></PackageName>
+						<ClassName><![CDATA[Main]]></ClassName>
+						<ItemName><![CDATA[tickOut]]></ItemName>
+					</TargetEmbeddedObjectReference>
+					<TargetConnectableItemReference>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Sink]]></ClassName>
+						<ItemName><![CDATA[in]]></ItemName>
+					</TargetConnectableItemReference>
+					<Points>
+						<Point><X>0</X><Y>0</Y></Point>
+						<Point><X>70</X><Y>0</Y></Point>
+					</Points>
+				</Connector>
 			</Connectors>
 			<Functions>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000081</Id>
+					<Id>1762300000099</Id>
 					<Name><![CDATA[setup]]></Name>
 					<Description><![CDATA[Loads the input files, sizes the resource pools, draws the layout and starts the workload.]]></Description>
 					<X>1850</X><Y>20</Y>
@@ -2446,6 +2780,19 @@ if (layoutIndex >= 0) {
 	layoutPath = "data/layouts/" + names.get(layoutIndex);
 }
 scenarioPath = scenarioFile.replace("{seed}", String.valueOf(seed));
+// realDay k >= 1: replay the k-th historical day listed in data/scenarios/real_index.txt instead
+if (realDay > 0) {
+	List<String> days = new ArrayList<String>();
+	try {
+		for (String s : java.nio.file.Files.readAllLines(java.nio.file.Paths.get("data/scenarios/real_index.txt")))
+			if (!s.trim().isEmpty()) days.add(s.trim());
+	} catch (java.io.IOException e) {
+		throw new IllegalArgumentException("cannot read data/scenarios/real_index.txt: " + e.getMessage());
+	}
+	if (realDay > days.size())
+		throw new IllegalArgumentException("realDay = " + realDay + " but real_index.txt lists " + days.size() + " days");
+	scenarioPath = "data/scenarios/" + days.get(realDay - 1);
+}
 // 2. load every input file and check them against each other (clear error message if anything is wrong)
 wh = Warehouse.load(layoutPath, configFile, scenarioPath, skuFile, seed);
 kpi = new Kpi(wh);
@@ -2458,6 +2805,7 @@ pickerPool.set_capacity(staff[0]);
 packerPool.set_capacity(staff[1]);
 receiverPool.set_capacity(staff[2]);
 putawayPool.set_capacity(staff[3]);
+if (cartUnits >= 0) wh.cfg.cartUnits = cartUnits;      // what-if: cart size (0 = single-order picking)
 // 4. build the warehouse picture from the layout
 drawLayout();
 // 5. the workload enters the flowchart; each order / receipt line waits in its arrival delay until its time
@@ -2465,6 +2813,7 @@ drawLayout();
 for (ScenarioData.OrderSpec s : wh.scenario.orders) orderIn.take(new Order(s));
 for (ScenarioData.ReceiptSpec s : wh.scenario.receipts) receiptIn.take(new Receipt(s));
 dayClockIn.take(new DayClock());
+tickIn.take(new Ticker());
 traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.scenario.orders.size() + " orders and "
 	+ wh.scenario.receipts.size() + " receipt lines from " + scenarioPath + ", seed " + seed
 	+ ", staff pick/pack/receive/putaway = " + staff[0] + "/" + staff[1] + "/" + staff[2] + "/" + staff[3]);]]></Body>
@@ -2472,7 +2821,7 @@ traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000082</Id>
+					<Id>1762300000100</Id>
 					<Name><![CDATA[registerWorker]]></Name>
 					<Description><![CDATA[Called by each pool for every new unit.]]></Description>
 					<X>1850</X><Y>42</Y>
@@ -2495,7 +2844,7 @@ workers.add(u);]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[boolean]]></ReturnType>
-					<Id>1762300000083</Id>
+					<Id>1762300000101</Id>
 					<Name><![CDATA[admit]]></Name>
 					<Description><![CDATA[Stock check when the order arrives: reserve every line now (true), or hold the order until a putaway brings the missing stock (false).]]></Description>
 					<X>1850</X><Y>64</Y>
@@ -2521,7 +2870,7 @@ return a.reserved;]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000084</Id>
+					<Id>1762300000102</Id>
 					<Name><![CDATA[retryHeld]]></Name>
 					<Description><![CDATA[After every putaway: release the held orders whose lines are now all in stock.]]></Description>
 					<X>1850</X><Y>86</Y>
@@ -2541,32 +2890,35 @@ for (Order o : go) {
 }]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
-					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
+					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000085</Id>
-					<Name><![CDATA[beginPick]]></Name>
-					<Description><![CDATA[Plans the picking tour (depot -> slots -> packing station -> depot); returns its duration in seconds.]]></Description>
+					<Id>1762300000103</Id>
+					<Name><![CDATA[dispatch]]></Name>
+					<Description><![CDATA[Wave release: forms picking carts from the waiting orders and starts them on free pickers.]]></Description>
 					<X>1850</X><Y>108</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
 					<ShowLabel>true</ShowLabel>
-					<Parameter>
-						<Name><![CDATA[a]]></Name>
-						<Type><![CDATA[Order]]></Type>
-					</Parameter>
-					<Body><![CDATA[if (a.pick == null) {       // plan once (the delay time may be evaluated more than once)
-	kpi.pickStarted(a.spec, time());
-	a.pick = wh.planPick(a.spec, time());
-	if (a.picker != null) a.picker.motion = a.pick.motion;
-}
-return a.pick.duration;]]></Body>
+					<Body><![CDATA[// a free picker takes the next cart (Warehouse.formBatch) as soon as the wave release rule allows it;
+// pending = released orders that are waiting in pickPool and are not on a cart yet, oldest first
+while (!pending.isEmpty()) {
+	if (pickerPool.idle() <= tourSeize.size()) return;      // every free picker already has a cart waiting
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : pending) specs.add(o.spec);
+	if (!wh.releaseNow(specs, kpi.oRel[specs.get(0).index], time())) return;
+	int[] pos = wh.formBatch(specs);
+	ArrayList<Order> batch = new ArrayList<Order>();
+	for (int i = pos.length - 1; i >= 0; i--) batch.add(0, pending.remove(pos[i]));
+	tourIn.take(new PickTour(batch));
+}]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
-					<ReturnModificator>VOID</ReturnModificator>
+					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000086</Id>
-					<Name><![CDATA[endPick]]></Name>
+					<Id>1762300000104</Id>
+					<Name><![CDATA[beginTour]]></Name>
+					<Description><![CDATA[Plans the cart's tour (depot -> all its slots -> packing station -> depot); returns its duration in seconds.]]></Description>
 					<X>1850</X><Y>130</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
@@ -2574,20 +2926,50 @@ return a.pick.duration;]]></Body>
 					<ShowLabel>true</ShowLabel>
 					<Parameter>
 						<Name><![CDATA[a]]></Name>
-						<Type><![CDATA[Order]]></Type>
+						<Type><![CDATA[PickTour]]></Type>
 					</Parameter>
-					<Body><![CDATA[nPicked++;
-wh.inv.consume(a.spec);
-kpi.pickEnded(a.spec, time(), a.pick);
-if (a.picker != null) a.picker.motion = null;]]></Body>
+					<Body><![CDATA[if (a.plan == null) {       // plan once (the delay time may be evaluated more than once)
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : a.orders) {
+		specs.add(o.spec);
+		kpi.pickStarted(o.spec, time());
+	}
+	a.plan = wh.planBatch(specs, time());
+	if (a.picker != null) a.picker.motion = a.plan.motion;
+}
+return a.plan.duration;]]></Body>
+				</Function>
+				<Function AccessType="default" StaticFunction="false">
+					<ReturnModificator>VOID</ReturnModificator>
+					<ReturnType><![CDATA[double]]></ReturnType>
+					<Id>1762300000105</Id>
+					<Name><![CDATA[endTour]]></Name>
+					<X>1850</X><Y>152</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Parameter>
+						<Name><![CDATA[a]]></Name>
+						<Type><![CDATA[PickTour]]></Type>
+					</Parameter>
+					<Body><![CDATA[for (Order o : a.orders) {
+	nPicked++;
+	wh.inv.consume(o.spec);
+	kpi.pickEnded(o.spec, time(), a.plan);
+}
+kpi.tourEnded(a.plan);
+nTours++;
+if (a.picker != null) a.picker.motion = null;
+for (Order o : a.orders) pickPool.free(o);      // the picked orders go on to packing]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000087</Id>
+					<Id>1762300000106</Id>
 					<Name><![CDATA[stageTime]]></Name>
 					<Description><![CDATA[Packed: wait in staging until the next carrier cut-off.]]></Description>
-					<X>1850</X><Y>152</Y>
+					<X>1850</X><Y>174</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2606,9 +2988,9 @@ return c < Double.POSITIVE_INFINITY ? c - time() : 10 * 400000;]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000088</Id>
+					<Id>1762300000107</Id>
 					<Name><![CDATA[orderShipped]]></Name>
-					<X>1850</X><Y>174</Y>
+					<X>1850</X><Y>196</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2623,10 +3005,10 @@ kpi.orderShipped(a.spec, time());]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000089</Id>
+					<Id>1762300000108</Id>
 					<Name><![CDATA[beginPutaway]]></Name>
 					<Description><![CDATA[Plans the putaway trip (inbound dock -> slot -> dock); returns its duration in seconds.]]></Description>
-					<X>1850</X><Y>196</Y>
+					<X>1850</X><Y>218</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2645,9 +3027,9 @@ return a.put.duration;]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000090</Id>
+					<Id>1762300000109</Id>
 					<Name><![CDATA[endPutaway]]></Name>
-					<X>1850</X><Y>218</Y>
+					<X>1850</X><Y>240</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2664,10 +3046,10 @@ retryHeld();]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000091</Id>
+					<Id>1762300000110</Id>
 					<Name><![CDATA[finishRun]]></Name>
 					<Description><![CDATA[End of the day (horizon_s): writes results/runs.csv (+ the per-order file) and stops the run.]]></Description>
-					<X>1850</X><Y>240</Y>
+					<X>1850</X><Y>262</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2688,9 +3070,9 @@ finishSimulation();]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[Color]]></ReturnType>
-					<Id>1762300000092</Id>
+					<Id>1762300000111</Id>
 					<Name><![CDATA[cellColor]]></Name>
-					<X>1850</X><Y>262</Y>
+					<X>1850</X><Y>284</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2713,26 +3095,60 @@ finishSimulation();]]></Body>
 }]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
+					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
+					<ReturnType><![CDATA[double]]></ReturnType>
+					<Id>1762300000112</Id>
+					<Name><![CDATA[sx]]></Name>
+					<Description><![CDATA[Screen x of a layout x (metres).]]></Description>
+					<X>1850</X><Y>306</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Parameter>
+						<Name><![CDATA[x]]></Name>
+						<Type><![CDATA[double]]></Type>
+					</Parameter>
+					<Body><![CDATA[return ox + (x - wh.layout.originX) * px;]]></Body>
+				</Function>
+				<Function AccessType="default" StaticFunction="false">
+					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
+					<ReturnType><![CDATA[double]]></ReturnType>
+					<Id>1762300000113</Id>
+					<Name><![CDATA[sy]]></Name>
+					<Description><![CDATA[Screen y of a layout y (metres); y points up, so the front of the building is at the bottom.]]></Description>
+					<X>1850</X><Y>328</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Parameter>
+						<Name><![CDATA[y]]></Name>
+						<Type><![CDATA[double]]></Type>
+					</Parameter>
+					<Body><![CDATA[return oy + (wh.layout.originY + wh.layout.heightM() - y) * px;]]></Body>
+				</Function>
+				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
 					<ReturnType><![CDATA[double]]></ReturnType>
-					<Id>1762300000093</Id>
+					<Id>1762300000114</Id>
 					<Name><![CDATA[drawLayout]]></Name>
 					<Description><![CDATA[Draws the layout read from the JSON file (cells, facility labels).]]></Description>
-					<X>1850</X><Y>284</Y>
+					<X>1850</X><Y>350</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
 					<ShowLabel>true</ShowLabel>
 					<Body><![CDATA[if (presentation == null) return;          // no animation in this experiment
 LayoutData L = wh.layout;
-px = Math.min(900.0 / L.widthM(), 600.0 / L.heightM());
-double c = L.cellM * px;
+px = Math.min(900.0 / L.widthM(), 700.0 / L.heightM());
+double cw = L.cellW * px, ch = L.cellH * px;
 int k = 0;                                 // insert at the bottom so the worker dots stay on top
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
-		s.setPos(ox + q * c, oy + r * c);
-		s.setSize(c, c);
+		s.setPos(sx(L.originX + q * L.cellW), sy(L.originY + (r + 1) * L.cellH));
+		s.setSize(cw, ch);
 		s.setFillColor(cellColor(L.grid[r][q]));
 		s.setLineColor(new Color(255, 255, 255));
 		s.setLineWidth(0.5);
@@ -2742,7 +3158,7 @@ for (int r = 0; r < L.rows; r++) {
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
 	ShapeText t = new ShapeText();
-	t.setPos(ox + f.x * px, oy + f.y * px - 5);
+	t.setPos(sx(f.x), sy(f.y) - 4);
 	t.setText(f.id);
 	t.setColor(Color.WHITE);
 	t.setFont(new Font("SansSerif", Font.BOLD, 8));
@@ -2750,10 +3166,10 @@ for (LayoutData.Facility f : L.facilities) {
 	presentation.insert(k++, t);
 }
 ShapeText title = new ShapeText();
-title.setPos(ox, oy + L.rows * c + 6);
-title.setText("Layout " + L.id + "  (" + L.cols + " x " + L.rows + " cells of " + L.cellM + " m, " + L.slotId.length
-	+ " slots, slotting " + L.slotting + ")   grey = aisle, brown = shelf, green DI = inbound dock, blue DO = outbound dock, "
-	+ "yellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
+title.setPos(ox, oy + L.heightM() * px + 6);
+title.setText("Layout " + L.id + "\n" + L.cols + " x " + L.rows + " cells of " + String.format("%.2f x %.2f", L.cellW, L.cellH)
+	+ " m, " + L.slotId.length + " slots, slotting " + L.slotting + "\ngrey = aisle, brown = shelf, green DI = inbound dock, "
+	+ "blue DO = outbound dock,\nyellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
 title.setColor(new Color(69, 90, 100));
 title.setFont(new Font("SansSerif", Font.PLAIN, 11));
 presentation.insert(k++, title);]]></Body>
@@ -2761,10 +3177,10 @@ presentation.insert(k++, title);]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[double[]]]></ReturnType>
-					<Id>1762300000094</Id>
+					<Id>1762300000115</Id>
 					<Name><![CDATA[homeXY]]></Name>
 					<Description><![CDATA[Where an idle worker is drawn: pickers at the depot, packers at stations, receivers at R, putaway at DI.]]></Description>
-					<X>1850</X><Y>306</Y>
+					<X>1850</X><Y>372</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2787,9 +3203,9 @@ return new double[]{f.x, f.y};]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[double[]]]></ReturnType>
-					<Id>1762300000095</Id>
+					<Id>1762300000116</Id>
 					<Name><![CDATA[workerXY]]></Name>
-					<X>1850</X><Y>328</Y>
+					<X>1850</X><Y>394</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2800,15 +3216,15 @@ return new double[]{f.x, f.y};]]></Body>
 					</Parameter>
 					<Body><![CDATA[Worker u = workers.get(i);
 double[] p = u.motion != null ? u.motion.at(time()) : homeXY(u);
-double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellM;     // spread workers that share a spot
-return new double[]{ox + (p[0] + off) * px, oy + (p[1] + off) * px};]]></Body>
+double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellW;     // spread workers that share a spot
+return new double[]{sx(p[0] + off), sy(p[1] + off)};]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[boolean]]></ReturnType>
-					<Id>1762300000096</Id>
+					<Id>1762300000117</Id>
 					<Name><![CDATA[workerVisible]]></Name>
-					<X>1850</X><Y>350</Y>
+					<X>1850</X><Y>416</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2822,9 +3238,9 @@ return new double[]{ox + (p[0] + off) * px, oy + (p[1] + off) * px};]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[Color]]></ReturnType>
-					<Id>1762300000097</Id>
+					<Id>1762300000118</Id>
 					<Name><![CDATA[workerColor]]></Name>
-					<X>1850</X><Y>372</Y>
+					<X>1850</X><Y>438</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2840,9 +3256,9 @@ return u.busyNow ? busyC[u.role] : new Color(158, 158, 158);]]></Body>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>RETURNS_VALUE</ReturnModificator>
 					<ReturnType><![CDATA[String]]></ReturnType>
-					<Id>1762300000098</Id>
+					<Id>1762300000119</Id>
 					<Name><![CDATA[statusText]]></Name>
-					<X>1850</X><Y>394</Y>
+					<X>1850</X><Y>460</Y>
 					<Label><X>10</X><Y>0</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -2851,11 +3267,11 @@ return u.busyNow ? busyC[u.role] : new Color(158, 158, 158);]]></Body>
 long t = (long) time();
 return String.format("%s   seed %d   day file %s%n"
 	+ "clock %02d:%02d:%02d (day ends at %s s)%n"
-	+ "orders: arrived %d   held now %d   picked %d   packed %d   shipped %d   in system %d%n"
+	+ "orders: arrived %d   held now %d   waiting for a cart %d   picked %d (%d carts)   packed %d   shipped %d   in system %d%n"
 	+ "busy: pickers %d/%d   packers %d/%d   receivers %d/%d   putaway %d/%d%n"
 	+ "receiving buffer %d / %d lines   staging %d orders   stock on hand %d units",
 	wh.layout.id, seed, scenarioPath, t / 3600, (t / 60) % 60, t % 60, Kpi.fmt(wh.cfg.horizon),
-	nArrived, (int) kpi.held.value(), nPicked, nPacked, nShipped, (int) kpi.inSystem.value(),
+	nArrived, (int) kpi.held.value(), pending.size(), nPicked, nTours, nPacked, nShipped, (int) kpi.inSystem.value(),
 	pickerPool.busy(), staff[0], packerPool.busy(), staff[1], receiverPool.busy(), staff[2], putawayPool.busy(), staff[3],
 	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), (int) kpi.staging.value(), wh.inv.totalOnHand());]]></Body>
 				</Function>
@@ -2863,7 +3279,7 @@ return String.format("%s   seed %d   day file %s%n"
 
 			<EmbeddedObjects>
 				<EmbeddedObject>
-					<Id>1762300000143</Id>
+					<Id>1762300000176</Id>
 					<Name><![CDATA[orderIn]]></Name>
 					<X>40</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -3000,7 +3416,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000144</Id>
+					<Id>1762300000177</Id>
 					<Name><![CDATA[orderArrive]]></Name>
 					<X>130</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -3111,7 +3527,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000145</Id>
+					<Id>1762300000178</Id>
 					<Name><![CDATA[stockCheck]]></Name>
 					<X>220</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -3209,7 +3625,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000146</Id>
+					<Id>1762300000179</Id>
 					<Name><![CDATA[holdWait]]></Name>
 					<X>265</X><Y>970</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -3331,52 +3747,28 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000147</Id>
-					<Name><![CDATA[pickSeize]]></Name>
-					<X>310</X><Y>900</Y>
+					<Id>1762300000180</Id>
+					<Name><![CDATA[pickPool]]></Name>
+					<X>400</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
 					<ShowLabel>true</ShowLabel>
 					<ActiveObjectClass>
 						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Seize]]></ClassName>
+						<ClassName><![CDATA[Wait]]></ClassName>
 					</ActiveObjectClass>
 					<GenericParameterSubstitute>
 						<GenericParameterSubstituteReference>
 							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-							<ClassName><![CDATA[Seize]]></ClassName>
-							<ItemName><![CDATA[1412336243147]]></ItemName>
+							<ClassName><![CDATA[Wait]]></ClassName>
+							<ItemName><![CDATA[1412336243169]]></ItemName>
 						</GenericParameterSubstituteReference>
 						<GenericParameterSubstituteValue Class="CodeValue">
 							<Code><![CDATA[Order]]></Code>
 						</GenericParameterSubstituteValue>
 					</GenericParameterSubstitute>
 					<Parameters>
-						<Parameter>
-							<Name><![CDATA[seizeFromOnePool]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[true]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceSets]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourcePool]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[pickerPool]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceQuantity]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[1]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[seizePolicy]]></Name>
-						</Parameter>
 						<Parameter>
 							<Name><![CDATA[capacity]]></Name>
 						</Parameter>
@@ -3387,73 +3779,7 @@ return String.format("%s   seed %d   day file %s%n"
 							</Value>
 						</Parameter>
 						<Parameter>
-							<Name><![CDATA[sendResources]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationType]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationNode]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationAttractor]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationResource]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationX]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationY]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[destinationZ]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[attachResources]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[entityLocationQueue]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[priority]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[taskMayPreemptOtherTasks]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[taskPreemptionPolicy]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[terminatedTaskProcessing]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[terminatedTasksEnter]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[suspendResumeEntities]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[customizeResourceChoice]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceChoiceCondition]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceSelectionMode]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceRating]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourceComparison]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[taskStartBlocksAreConnected]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[taskStartBlocks]]></Name>
+							<Name><![CDATA[entityLocation]]></Name>
 						</Parameter>
 						<Parameter>
 							<Name><![CDATA[enableTimeout]]></Name>
@@ -3465,10 +3791,13 @@ return String.format("%s   seed %d   day file %s%n"
 							<Name><![CDATA[enablePreemption]]></Name>
 						</Parameter>
 						<Parameter>
-							<Name><![CDATA[canceledUnitsBehavior]]></Name>
+							<Name><![CDATA[queuing]]></Name>
 						</Parameter>
 						<Parameter>
-							<Name><![CDATA[canceledUnitsRelease]]></Name>
+							<Name><![CDATA[priority]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[comparisonForPreemption]]></Name>
 						</Parameter>
 						<Parameter>
 							<Name><![CDATA[pushProtocol]]></Name>
@@ -3481,6 +3810,13 @@ return String.format("%s   seed %d   day file %s%n"
 						</Parameter>
 						<Parameter>
 							<Name><![CDATA[onEnter]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[pending.add(agent);
+dispatch();]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExit]]></Name>
 						</Parameter>
 						<Parameter>
 							<Name><![CDATA[onExitTimeout]]></Name>
@@ -3489,34 +3825,7 @@ return String.format("%s   seed %d   day file %s%n"
 							<Name><![CDATA[onExitPreempted]]></Name>
 						</Parameter>
 						<Parameter>
-							<Name><![CDATA[onSeizeUnit]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[agent.picker = (Worker) unit;]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onPrepareUnit]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onExit]]></Name>
-						</Parameter>
-						<Parameter>
 							<Name><![CDATA[onRemove]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onTaskTerminated]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[comparison]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onTaskSuspended]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onTaskResumed]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onUnitFinishedWrapUp]]></Name>
 						</Parameter>
 					</Parameters>
 					<ReplicationFlag>false</ReplicationFlag>
@@ -3564,237 +3873,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000148</Id>
-					<Name><![CDATA[pickWalk]]></Name>
-					<X>400</X><Y>900</Y>
-					<Label><X>-10</X><Y>-20</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<ActiveObjectClass>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Delay]]></ClassName>
-					</ActiveObjectClass>
-					<GenericParameterSubstitute>
-						<GenericParameterSubstituteReference>
-							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-							<ClassName><![CDATA[Delay]]></ClassName>
-							<ItemName><![CDATA[1412336242930]]></ItemName>
-						</GenericParameterSubstituteReference>
-						<GenericParameterSubstituteValue Class="CodeValue">
-							<Code><![CDATA[Order]]></Code>
-						</GenericParameterSubstituteValue>
-					</GenericParameterSubstitute>
-					<Parameters>
-						<Parameter>
-							<Name><![CDATA[type]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[delayTime]]></Name>
-							<Value Class="CodeUnitValue">
-								<Code><![CDATA[beginPick(agent)]]></Code>
-								<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[capacity]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[maximumCapacity]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[true]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[entityLocation]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[pushProtocol]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[restoreEntityLocationOnExit]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[forceStatisticsCollection]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onEnter]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onAtExit]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onExit]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[endPick(agent);]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onRemove]]></Name>
-						</Parameter>
-					</Parameters>
-					<ReplicationFlag>false</ReplicationFlag>
-					<Replication Class="CodeValue">
-						<Code><![CDATA[100]]></Code>
-					</Replication>
-					<CollectionType>ARRAY_LIST_BASED</CollectionType>
-					<InitialSpeedCode Class="CodeUnitValue">
-						<Code><![CDATA[10]]></Code>
-						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
-					</InitialSpeedCode>
-					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
-					<XCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</XCode>
-					<YCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</YCode>
-					<ZCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</ZCode>
-					<ColumnCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</ColumnCode>
-					<RowCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</RowCode>
-					<LatitudeCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</LatitudeCode>
-					<LongitudeCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</LongitudeCode>
-					<LocationNameCode Class="CodeValue">
-						<Code><![CDATA[""]]></Code>
-					</LocationNameCode>
-					<InitializationType>SPECIFIED_NUMBER</InitializationType>
-					<InitializationDatabaseTableQuery>
-						<Id>1762299989992</Id>
-						<TableReference>
-						</TableReference>
-					</InitializationDatabaseTableQuery>
-					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
-					<QuantityColumn>
-					</QuantityColumn>
-				</EmbeddedObject>
-				<EmbeddedObject>
-					<Id>1762300000149</Id>
-					<Name><![CDATA[pickRelease]]></Name>
-					<X>490</X><Y>900</Y>
-					<Label><X>-10</X><Y>-20</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<ActiveObjectClass>
-						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-						<ClassName><![CDATA[Release]]></ClassName>
-					</ActiveObjectClass>
-					<GenericParameterSubstitute>
-						<GenericParameterSubstituteReference>
-							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
-							<ClassName><![CDATA[Release]]></ClassName>
-							<ItemName><![CDATA[1412336243154]]></ItemName>
-						</GenericParameterSubstituteReference>
-						<GenericParameterSubstituteValue Class="CodeValue">
-							<Code><![CDATA[Order]]></Code>
-						</GenericParameterSubstituteValue>
-					</GenericParameterSubstitute>
-					<Parameters>
-						<Parameter>
-							<Name><![CDATA[releaseMode]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resourcePool]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[quantity]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[resources]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[seizeBlocks]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[movingGoHome]]></Name>
-							<Value Class="CodeValue">
-								<Code><![CDATA[false]]></Code>
-							</Value>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[wrapUpTaskPolicyType]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[wrapUpTaskPriority]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[wrapUpTaskMayPreemptOtherTasks]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[wrapUpTaskPreemptionPolicy]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[wrapUpUsageState]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onEnter]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onReleaseUnit]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onExit]]></Name>
-						</Parameter>
-						<Parameter>
-							<Name><![CDATA[onWrapUpTerminated]]></Name>
-						</Parameter>
-					</Parameters>
-					<ReplicationFlag>false</ReplicationFlag>
-					<Replication Class="CodeValue">
-						<Code><![CDATA[100]]></Code>
-					</Replication>
-					<CollectionType>ARRAY_LIST_BASED</CollectionType>
-					<InitialSpeedCode Class="CodeUnitValue">
-						<Code><![CDATA[10]]></Code>
-						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
-					</InitialSpeedCode>
-					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
-					<XCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</XCode>
-					<YCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</YCode>
-					<ZCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</ZCode>
-					<ColumnCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</ColumnCode>
-					<RowCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</RowCode>
-					<LatitudeCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</LatitudeCode>
-					<LongitudeCode Class="CodeValue">
-						<Code><![CDATA[0]]></Code>
-					</LongitudeCode>
-					<LocationNameCode Class="CodeValue">
-						<Code><![CDATA[""]]></Code>
-					</LocationNameCode>
-					<InitializationType>SPECIFIED_NUMBER</InitializationType>
-					<InitializationDatabaseTableQuery>
-						<Id>1762299989991</Id>
-						<TableReference>
-						</TableReference>
-					</InitializationDatabaseTableQuery>
-					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
-					<QuantityColumn>
-					</QuantityColumn>
-				</EmbeddedObject>
-				<EmbeddedObject>
-					<Id>1762300000150</Id>
+					<Id>1762300000181</Id>
 					<Name><![CDATA[pack]]></Name>
 					<X>580</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -4007,7 +4086,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989990</Id>
+						<Id>1762299989992</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4016,7 +4095,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000151</Id>
+					<Id>1762300000182</Id>
 					<Name><![CDATA[staging]]></Name>
 					<X>670</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -4121,7 +4200,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989989</Id>
+						<Id>1762299989991</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4130,7 +4209,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000152</Id>
+					<Id>1762300000183</Id>
 					<Name><![CDATA[shipped]]></Name>
 					<X>760</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -4195,6 +4274,376 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
+						<Id>1762299989990</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000184</Id>
+					<Name><![CDATA[tourIn]]></Name>
+					<X>310</X><Y>1010</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Enter]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Enter]]></ClassName>
+							<ItemName><![CDATA[1412336242933]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[PickTour]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[locationType]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationX]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationY]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationZ]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLatitude]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLongitude]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationGeoPlaceName]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationXYZInNetwork]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationNetwork]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLevel]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationNode]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationAttractor]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[speed]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[changeDimensions]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[length]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[width]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[height]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[addToCustomPopulation]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[population]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[pushProtocol]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onRemove]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onAtEnter]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989989</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000185</Id>
+					<Name><![CDATA[tourSeize]]></Name>
+					<X>400</X><Y>1010</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Seize]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Seize]]></ClassName>
+							<ItemName><![CDATA[1412336243147]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[PickTour]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[seizeFromOnePool]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[true]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceSets]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourcePool]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[pickerPool]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceQuantity]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[1]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[seizePolicy]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[capacity]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[maximumCapacity]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[true]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[sendResources]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationType]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationNode]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationAttractor]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationResource]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationX]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationY]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destinationZ]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[attachResources]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[entityLocationQueue]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[priority]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[taskMayPreemptOtherTasks]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[taskPreemptionPolicy]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[terminatedTaskProcessing]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[terminatedTasksEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[suspendResumeEntities]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[customizeResourceChoice]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceChoiceCondition]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceSelectionMode]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceRating]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourceComparison]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[taskStartBlocksAreConnected]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[taskStartBlocks]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[enableTimeout]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[timeout]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[enablePreemption]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[canceledUnitsBehavior]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[canceledUnitsRelease]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[pushProtocol]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[restoreEntityLocationOnExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[forceStatisticsCollection]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExitTimeout]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExitPreempted]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onSeizeUnit]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[agent.picker = (Worker) unit;]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onPrepareUnit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onRemove]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onTaskTerminated]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[comparison]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onTaskSuspended]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onTaskResumed]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onUnitFinishedWrapUp]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
 						<Id>1762299989988</Id>
 						<TableReference>
 						</TableReference>
@@ -4204,9 +4653,316 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000153</Id>
+					<Id>1762300000186</Id>
+					<Name><![CDATA[tourWalk]]></Name>
+					<X>490</X><Y>1010</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Delay]]></ClassName>
+							<ItemName><![CDATA[1412336242930]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[PickTour]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[type]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[delayTime]]></Name>
+							<Value Class="CodeUnitValue">
+								<Code><![CDATA[beginTour(agent)]]></Code>
+								<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[capacity]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[maximumCapacity]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[true]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[entityLocation]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[pushProtocol]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[restoreEntityLocationOnExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[forceStatisticsCollection]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onAtExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExit]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[endTour(agent);]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onRemove]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989987</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000187</Id>
+					<Name><![CDATA[tourRelease]]></Name>
+					<X>580</X><Y>1010</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Release]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Release]]></ClassName>
+							<ItemName><![CDATA[1412336243154]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[PickTour]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[releaseMode]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resourcePool]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[quantity]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[resources]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[seizeBlocks]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[movingGoHome]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[false]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[wrapUpTaskPolicyType]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[wrapUpTaskPriority]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[wrapUpTaskMayPreemptOtherTasks]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[wrapUpTaskPreemptionPolicy]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[wrapUpUsageState]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onReleaseUnit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExit]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[dispatch();]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onWrapUpTerminated]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989986</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000188</Id>
+					<Name><![CDATA[tourDone]]></Name>
+					<X>670</X><Y>1010</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Sink]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Sink]]></ClassName>
+							<ItemName><![CDATA[1412336242929]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[PickTour]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destroyEntity]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989985</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000189</Id>
 					<Name><![CDATA[receiptIn]]></Name>
-					<X>40</X><Y>1070</Y>
+					<X>40</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -4332,7 +5088,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989987</Id>
+						<Id>1762299989984</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4341,9 +5097,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000154</Id>
+					<Id>1762300000190</Id>
 					<Name><![CDATA[receiptArrive]]></Name>
-					<X>130</X><Y>1070</Y>
+					<X>130</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -4446,7 +5202,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989986</Id>
+						<Id>1762299989983</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4455,9 +5211,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000155</Id>
+					<Id>1762300000191</Id>
 					<Name><![CDATA[receive]]></Name>
-					<X>220</X><Y>1070</Y>
+					<X>220</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -4671,7 +5427,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989985</Id>
+						<Id>1762299989982</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4680,9 +5436,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000156</Id>
+					<Id>1762300000192</Id>
 					<Name><![CDATA[putSeize]]></Name>
-					<X>310</X><Y>1070</Y>
+					<X>310</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -4904,7 +5660,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989984</Id>
+						<Id>1762299989981</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -4913,9 +5669,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000157</Id>
+					<Id>1762300000193</Id>
 					<Name><![CDATA[putWalk]]></Name>
-					<X>400</X><Y>1070</Y>
+					<X>400</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5018,7 +5774,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989983</Id>
+						<Id>1762299989980</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5027,9 +5783,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000158</Id>
+					<Id>1762300000194</Id>
 					<Name><![CDATA[putRelease]]></Name>
-					<X>490</X><Y>1070</Y>
+					<X>490</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5134,7 +5890,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989982</Id>
+						<Id>1762299989979</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5143,9 +5899,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000159</Id>
+					<Id>1762300000195</Id>
 					<Name><![CDATA[stored]]></Name>
-					<X>580</X><Y>1070</Y>
+					<X>580</X><Y>1130</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5208,7 +5964,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989981</Id>
+						<Id>1762299989978</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5217,9 +5973,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000160</Id>
+					<Id>1762300000196</Id>
 					<Name><![CDATA[dayClockIn]]></Name>
-					<X>40</X><Y>1180</Y>
+					<X>40</X><Y>1240</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5345,7 +6101,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989980</Id>
+						<Id>1762299989977</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5354,9 +6110,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000161</Id>
+					<Id>1762300000197</Id>
 					<Name><![CDATA[endOfDay]]></Name>
-					<X>130</X><Y>1180</Y>
+					<X>130</X><Y>1240</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5459,7 +6215,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989979</Id>
+						<Id>1762299989976</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5468,9 +6224,9 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000162</Id>
+					<Id>1762300000198</Id>
 					<Name><![CDATA[dayEnd]]></Name>
-					<X>220</X><Y>1180</Y>
+					<X>220</X><Y>1240</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
@@ -5533,7 +6289,7 @@ return String.format("%s   seed %d   day file %s%n"
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989978</Id>
+						<Id>1762299989975</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5542,7 +6298,333 @@ return String.format("%s   seed %d   day file %s%n"
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000163</Id>
+					<Id>1762300000199</Id>
+					<Name><![CDATA[tickIn]]></Name>
+					<X>400</X><Y>1240</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Enter]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Enter]]></ClassName>
+							<ItemName><![CDATA[1412336242933]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[Ticker]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[locationType]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationX]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationY]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationZ]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLatitude]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLongitude]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationGeoPlaceName]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationXYZInNetwork]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationNetwork]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationLevel]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationNode]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[locationAttractor]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[speed]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[changeDimensions]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[length]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[width]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[height]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[addToCustomPopulation]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[population]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[pushProtocol]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onRemove]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onAtEnter]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989974</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000200</Id>
+					<Name><![CDATA[tick]]></Name>
+					<X>490</X><Y>1240</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Delay]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Delay]]></ClassName>
+							<ItemName><![CDATA[1412336242930]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[Ticker]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[type]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[delayTime]]></Name>
+							<Value Class="CodeUnitValue">
+								<Code><![CDATA[wh.cfg.tick]]></Code>
+								<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[capacity]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[maximumCapacity]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[true]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[entityLocation]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[pushProtocol]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[restoreEntityLocationOnExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[forceStatisticsCollection]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onAtExit]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onExit]]></Name>
+							<Value Class="CodeValue">
+								<Code><![CDATA[dispatch();
+if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());]]></Code>
+							</Value>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[onRemove]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989973</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000201</Id>
+					<Name><![CDATA[tickOut]]></Name>
+					<X>580</X><Y>1240</Y>
+					<Label><X>-10</X><Y>-20</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<ActiveObjectClass>
+						<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+						<ClassName><![CDATA[Sink]]></ClassName>
+					</ActiveObjectClass>
+					<GenericParameterSubstitute>
+						<GenericParameterSubstituteReference>
+							<PackageName><![CDATA[com.anylogic.libraries.processmodeling]]></PackageName>
+							<ClassName><![CDATA[Sink]]></ClassName>
+							<ItemName><![CDATA[1412336242929]]></ItemName>
+						</GenericParameterSubstituteReference>
+						<GenericParameterSubstituteValue Class="CodeValue">
+							<Code><![CDATA[Ticker]]></Code>
+						</GenericParameterSubstituteValue>
+					</GenericParameterSubstitute>
+					<Parameters>
+						<Parameter>
+							<Name><![CDATA[onEnter]]></Name>
+						</Parameter>
+						<Parameter>
+							<Name><![CDATA[destroyEntity]]></Name>
+						</Parameter>
+					</Parameters>
+					<ReplicationFlag>false</ReplicationFlag>
+					<Replication Class="CodeValue">
+						<Code><![CDATA[100]]></Code>
+					</Replication>
+					<CollectionType>ARRAY_LIST_BASED</CollectionType>
+					<InitialSpeedCode Class="CodeUnitValue">
+						<Code><![CDATA[10]]></Code>
+						<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+					</InitialSpeedCode>
+					<InitialLocationType>AT_ANIMATION_POSITION</InitialLocationType>
+					<XCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</XCode>
+					<YCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</YCode>
+					<ZCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ZCode>
+					<ColumnCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</ColumnCode>
+					<RowCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</RowCode>
+					<LatitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LatitudeCode>
+					<LongitudeCode Class="CodeValue">
+						<Code><![CDATA[0]]></Code>
+					</LongitudeCode>
+					<LocationNameCode Class="CodeValue">
+						<Code><![CDATA[""]]></Code>
+					</LocationNameCode>
+					<InitializationType>SPECIFIED_NUMBER</InitializationType>
+					<InitializationDatabaseTableQuery>
+						<Id>1762299989972</Id>
+						<TableReference>
+						</TableReference>
+					</InitializationDatabaseTableQuery>
+					<InitializationDatabaseType>ONE_AGENT_PER_DATABASE_RECORD</InitializationDatabaseType>
+					<QuantityColumn>
+					</QuantityColumn>
+				</EmbeddedObject>
+				<EmbeddedObject>
+					<Id>1762300000202</Id>
 					<Name><![CDATA[pickerPool]]></Name>
 					<X>940</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -5605,7 +6687,7 @@ return String.format("%s   seed %d   day file %s%n"
 							<Value Class="EntityCodeValue">
 								<IsAgentEntity>true</IsAgentEntity>
 								<EntityEmbeddedObject>
-									<Id>1762300000099</Id>
+									<Id>1762300000120</Id>
 									<ActiveObjectClass>
 										<PackageName><![CDATA[warehousesim]]></PackageName>
 										<ClassName><![CDATA[Worker]]></ClassName>
@@ -5655,7 +6737,7 @@ return String.format("%s   seed %d   day file %s%n"
 									</LocationNameCode>
 									<InitializationType>SPECIFIED_NUMBER</InitializationType>
 									<InitializationDatabaseTableQuery>
-										<Id>1762299989977</Id>
+										<Id>1762299989971</Id>
 										<TableReference>
 										</TableReference>
 									</InitializationDatabaseTableQuery>
@@ -5878,7 +6960,7 @@ unit.busyNow = false;]]></Code>
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989976</Id>
+						<Id>1762299989970</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -5887,7 +6969,7 @@ unit.busyNow = false;]]></Code>
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000164</Id>
+					<Id>1762300000203</Id>
 					<Name><![CDATA[packerPool]]></Name>
 					<X>1030</X><Y>900</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -5950,7 +7032,7 @@ unit.busyNow = false;]]></Code>
 							<Value Class="EntityCodeValue">
 								<IsAgentEntity>true</IsAgentEntity>
 								<EntityEmbeddedObject>
-									<Id>1762300000100</Id>
+									<Id>1762300000121</Id>
 									<ActiveObjectClass>
 										<PackageName><![CDATA[warehousesim]]></PackageName>
 										<ClassName><![CDATA[Worker]]></ClassName>
@@ -6000,7 +7082,7 @@ unit.busyNow = false;]]></Code>
 									</LocationNameCode>
 									<InitializationType>SPECIFIED_NUMBER</InitializationType>
 									<InitializationDatabaseTableQuery>
-										<Id>1762299989975</Id>
+										<Id>1762299989969</Id>
 										<TableReference>
 										</TableReference>
 									</InitializationDatabaseTableQuery>
@@ -6223,7 +7305,7 @@ unit.busyNow = false;]]></Code>
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989974</Id>
+						<Id>1762299989968</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -6232,7 +7314,7 @@ unit.busyNow = false;]]></Code>
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000165</Id>
+					<Id>1762300000204</Id>
 					<Name><![CDATA[receiverPool]]></Name>
 					<X>940</X><Y>990</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -6295,7 +7377,7 @@ unit.busyNow = false;]]></Code>
 							<Value Class="EntityCodeValue">
 								<IsAgentEntity>true</IsAgentEntity>
 								<EntityEmbeddedObject>
-									<Id>1762300000101</Id>
+									<Id>1762300000122</Id>
 									<ActiveObjectClass>
 										<PackageName><![CDATA[warehousesim]]></PackageName>
 										<ClassName><![CDATA[Worker]]></ClassName>
@@ -6345,7 +7427,7 @@ unit.busyNow = false;]]></Code>
 									</LocationNameCode>
 									<InitializationType>SPECIFIED_NUMBER</InitializationType>
 									<InitializationDatabaseTableQuery>
-										<Id>1762299989973</Id>
+										<Id>1762299989967</Id>
 										<TableReference>
 										</TableReference>
 									</InitializationDatabaseTableQuery>
@@ -6568,7 +7650,7 @@ unit.busyNow = false;]]></Code>
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989972</Id>
+						<Id>1762299989966</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -6577,7 +7659,7 @@ unit.busyNow = false;]]></Code>
 					</QuantityColumn>
 				</EmbeddedObject>
 				<EmbeddedObject>
-					<Id>1762300000166</Id>
+					<Id>1762300000205</Id>
 					<Name><![CDATA[putawayPool]]></Name>
 					<X>1030</X><Y>990</Y>
 					<Label><X>-10</X><Y>-20</Y></Label>
@@ -6640,7 +7722,7 @@ unit.busyNow = false;]]></Code>
 							<Value Class="EntityCodeValue">
 								<IsAgentEntity>true</IsAgentEntity>
 								<EntityEmbeddedObject>
-									<Id>1762300000102</Id>
+									<Id>1762300000123</Id>
 									<ActiveObjectClass>
 										<PackageName><![CDATA[warehousesim]]></PackageName>
 										<ClassName><![CDATA[Worker]]></ClassName>
@@ -6690,7 +7772,7 @@ unit.busyNow = false;]]></Code>
 									</LocationNameCode>
 									<InitializationType>SPECIFIED_NUMBER</InitializationType>
 									<InitializationDatabaseTableQuery>
-										<Id>1762299989971</Id>
+										<Id>1762299989965</Id>
 										<TableReference>
 										</TableReference>
 									</InitializationDatabaseTableQuery>
@@ -6913,7 +7995,7 @@ unit.busyNow = false;]]></Code>
 					</LocationNameCode>
 					<InitializationType>SPECIFIED_NUMBER</InitializationType>
 					<InitializationDatabaseTableQuery>
-						<Id>1762299989970</Id>
+						<Id>1762299989964</Id>
 						<TableReference>
 						</TableReference>
 					</InitializationDatabaseTableQuery>
@@ -6938,7 +8020,7 @@ unit.busyNow = false;]]></Code>
 
 			<Presentation>
 				<Text>
-					<Id>1762300000103</Id>
+					<Id>1762300000124</Id>
 					<Name><![CDATA[text1]]></Name>
 					<X>20</X><Y>12</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -6959,7 +8041,7 @@ unit.busyNow = false;]]></Code>
 					<Alignment>LEFT</Alignment>
 				</Text>
 				<Text>
-					<Id>1762300000104</Id>
+					<Id>1762300000125</Id>
 					<Name><![CDATA[status]]></Name>
 					<X>20</X><Y>44</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -6981,7 +8063,7 @@ unit.busyNow = false;]]></Code>
 					<Alignment>LEFT</Alignment>
 				</Text>
 				<Oval>
-					<Id>1762300000105</Id>
+					<Id>1762300000126</Id>
 					<Name><![CDATA[workerDot]]></Name>
 					<X>0</X><Y>0</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7010,7 +8092,7 @@ unit.busyNow = false;]]></Code>
 					<FillMaterial>null</FillMaterial>
 				</Oval>
 				<Text>
-					<Id>1762300000106</Id>
+					<Id>1762300000127</Id>
 					<Name><![CDATA[text2]]></Name>
 					<X>960</X><Y>160</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7031,7 +8113,7 @@ unit.busyNow = false;]]></Code>
 					<Alignment>LEFT</Alignment>
 				</Text>
     			<TimePlot>
-					<Id>1762300000111</Id>
+					<Id>1762300000132</Id>
 					<Name><![CDATA[levels]]></Name>
 					<X>960</X><Y>190</Y>
 					<Label><X>0</X><Y>-10</Y></Label>
@@ -7041,7 +8123,7 @@ unit.busyNow = false;]]></Code>
 					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
 					<AutoUpdate>true</AutoUpdate>
 					<RecurrenceProperties>
-						<Id>1762300000112</Id>
+						<Id>1762300000133</Id>
 						<OccurrenceAtTime>true</OccurrenceAtTime>
 						<OccurrenceDate>1759708800000</OccurrenceDate>
 						<OccurrenceTime Class="CodeUnitValue">
@@ -7087,7 +8169,7 @@ unit.busyNow = false;]]></Code>
 					<Interpolation>LINEAR</Interpolation>
 					<DatasetExpression>  
 						<Title><![CDATA[orders in system]]></Title>
-					<Id>1762300000107</Id>
+					<Id>1762300000128</Id>
 					<Expression><![CDATA[_ds_levels0]]></Expression>
 					<Color>-15374912</Color>
 					<Expression2><![CDATA[kpi == null ? 0 : kpi.inSystem.value()]]></Expression2>
@@ -7097,7 +8179,7 @@ unit.busyNow = false;]]></Code>
 					</DatasetExpression>
 					<DatasetExpression>  
 						<Title><![CDATA[held (no stock)]]></Title>
-					<Id>1762300000108</Id>
+					<Id>1762300000129</Id>
 					<Expression><![CDATA[_ds_levels1]]></Expression>
 					<Color>-3790808</Color>
 					<Expression2><![CDATA[kpi == null ? 0 : kpi.held.value()]]></Expression2>
@@ -7107,7 +8189,7 @@ unit.busyNow = false;]]></Code>
 					</DatasetExpression>
 					<DatasetExpression>  
 						<Title><![CDATA[in staging]]></Title>
-					<Id>1762300000109</Id>
+					<Id>1762300000130</Id>
 					<Expression><![CDATA[_ds_levels2]]></Expression>
 					<Color>-9823334</Color>
 					<Expression2><![CDATA[kpi == null ? 0 : kpi.staging.value()]]></Expression2>
@@ -7117,7 +8199,7 @@ unit.busyNow = false;]]></Code>
 					</DatasetExpression>
 					<DatasetExpression>  
 						<Title><![CDATA[receiving buffer]]></Title>
-					<Id>1762300000110</Id>
+					<Id>1762300000131</Id>
 					<Expression><![CDATA[_ds_levels3]]></Expression>
 					<Color>-415707</Color>
 					<Expression2><![CDATA[kpi == null ? 0 : kpi.recvBuffer.value()]]></Expression2>
@@ -7131,7 +8213,7 @@ unit.busyNow = false;]]></Code>
 					<LabelFormat>MODEL_TIME_UNITS</LabelFormat>
     			</TimePlot>
 				<Text>
-					<Id>1762300000113</Id>
+					<Id>1762300000134</Id>
 					<Name><![CDATA[text3]]></Name>
 					<X>20</X><Y>850</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7152,7 +8234,7 @@ unit.busyNow = false;]]></Code>
 					<Alignment>LEFT</Alignment>
 				</Text>
 				<Text>
-					<Id>1762300000114</Id>
+					<Id>1762300000135</Id>
 					<Name><![CDATA[text4]]></Name>
 					<X>20</X><Y>872</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7164,7 +8246,7 @@ unit.busyNow = false;]]></Code>
 					<Z>0</Z>
 					<Rotation>0.0</Rotation>
 					<Color>-11243910</Color>
-					<Text><![CDATA[Outbound: arrive, stock check (hold if short), pick tour, pack, staging until cut-off, ship.   Inbound: arrive, receive, putaway trip, stock up (releases held orders).]]></Text>
+					<Text><![CDATA[Outbound: arrive, stock check (hold if short), wait for a cart (wave release), cart tour by a picker, pack, staging until cut-off, ship.   Inbound: arrive, receive, putaway trip, stock up (releases held orders).]]></Text>
 					<Font>
 						<Name>SansSerif</Name>
 						<Size>11</Size>
@@ -7254,7 +8336,7 @@ unit.busyNow = false;]]></Code>
 			</EnvironmentProperties>
 			<DatasetsCreationProperties>
 				<AutoCreate>false</AutoCreate>
-					<Id>1762299989969</Id>
+					<Id>1762299989963</Id>
 					<OccurrenceAtTime>true</OccurrenceAtTime>
 					<OccurrenceDate>1759708800000</OccurrenceDate>
 					<OccurrenceTime Class="CodeUnitValue">
@@ -7285,22 +8367,7 @@ unit.busyNow = false;]]></Code>
 			<CurrentLevel>1762300000009</CurrentLevel>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000029</Id>
-					<Name><![CDATA[pick]]></Name>
-					<X>20</X><Y>40</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
-						<Type><![CDATA[Main.Warehouse.PickPlan]]></Type>        
-						<InitialValue Class="CodeValue">
-							<Code><![CDATA[null]]></Code>
-						</InitialValue>
-					</Properties>
-				</Variable>
-				<Variable Class="PlainVariable">
-					<Id>1762300000030</Id>
+					<Id>1762300000039</Id>
 					<Name><![CDATA[reserved]]></Name>
 					<X>20</X><Y>60</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7315,22 +8382,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000031</Id>
-					<Name><![CDATA[picker]]></Name>
-					<X>20</X><Y>80</Y>
-					<Label><X>10</X><Y>0</Y></Label>
-					<PublicFlag>false</PublicFlag>
-					<PresentationFlag>true</PresentationFlag>
-					<ShowLabel>true</ShowLabel>
-					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
-						<Type><![CDATA[Worker]]></Type>        
-						<InitialValue Class="CodeValue">
-							<Code><![CDATA[null]]></Code>
-						</InitialValue>
-					</Properties>
-				</Variable>
-				<Variable Class="PlainVariable">
-					<Id>1762300000032</Id>
+					<Id>1762300000040</Id>
 					<Name><![CDATA[admitted]]></Name>
 					<X>20</X><Y>100</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7345,7 +8397,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000027</Id>
+					<Id>1762300000037</Id>
 					<Name><![CDATA[spec]]></Name>
 					<X>20</X><Y>20</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7360,7 +8412,7 @@ unit.busyNow = false;]]></Code>
 							<Code><![CDATA[null]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000028</Id>
+							<Id>1762300000038</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -7465,7 +8517,7 @@ unit.busyNow = false;]]></Code>
 			</EnvironmentProperties>
 			<DatasetsCreationProperties>
 				<AutoCreate>false</AutoCreate>
-					<Id>1762299989968</Id>
+					<Id>1762299989962</Id>
 					<OccurrenceAtTime>true</OccurrenceAtTime>
 					<OccurrenceDate>1759708800000</OccurrenceDate>
 					<OccurrenceTime Class="CodeUnitValue">
@@ -7496,7 +8548,7 @@ unit.busyNow = false;]]></Code>
 			<CurrentLevel>1762300000014</CurrentLevel>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000035</Id>
+					<Id>1762300000047</Id>
 					<Name><![CDATA[put]]></Name>
 					<X>20</X><Y>40</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7511,7 +8563,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000036</Id>
+					<Id>1762300000048</Id>
 					<Name><![CDATA[worker]]></Name>
 					<X>20</X><Y>60</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7526,7 +8578,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="Parameter">
-					<Id>1762300000033</Id>
+					<Id>1762300000045</Id>
 					<Name><![CDATA[spec]]></Name>
 					<X>20</X><Y>20</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7541,7 +8593,7 @@ unit.busyNow = false;]]></Code>
 							<Code><![CDATA[null]]></Code>
 						</DefaultValue>
 						<ParameterEditor>
-							<Id>1762300000034</Id>
+							<Id>1762300000046</Id>
 							<EditorContolType>TEXT_BOX</EditorContolType>
 							<MinSliderValue><![CDATA[0]]></MinSliderValue>
 							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
@@ -7646,7 +8698,7 @@ unit.busyNow = false;]]></Code>
 			</EnvironmentProperties>
 			<DatasetsCreationProperties>
 				<AutoCreate>false</AutoCreate>
-					<Id>1762299989967</Id>
+					<Id>1762299989961</Id>
 					<OccurrenceAtTime>true</OccurrenceAtTime>
 					<OccurrenceDate>1759708800000</OccurrenceDate>
 					<OccurrenceTime Class="CodeUnitValue">
@@ -7677,7 +8729,7 @@ unit.busyNow = false;]]></Code>
 			<CurrentLevel>1762300000019</CurrentLevel>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000037</Id>
+					<Id>1762300000049</Id>
 					<Name><![CDATA[role]]></Name>
 					<X>20</X><Y>20</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7692,7 +8744,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000038</Id>
+					<Id>1762300000050</Id>
 					<Name><![CDATA[k]]></Name>
 					<X>20</X><Y>40</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7707,7 +8759,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000039</Id>
+					<Id>1762300000051</Id>
 					<Name><![CDATA[busyNow]]></Name>
 					<X>20</X><Y>60</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7722,7 +8774,7 @@ unit.busyNow = false;]]></Code>
 					</Properties>
 				</Variable>
 				<Variable Class="PlainVariable">
-					<Id>1762300000040</Id>
+					<Id>1762300000052</Id>
 					<Name><![CDATA[motion]]></Name>
 					<X>20</X><Y>80</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7833,7 +8885,7 @@ unit.busyNow = false;]]></Code>
 			</EnvironmentProperties>
 			<DatasetsCreationProperties>
 				<AutoCreate>false</AutoCreate>
-					<Id>1762299989966</Id>
+					<Id>1762299989960</Id>
 					<OccurrenceAtTime>true</OccurrenceAtTime>
 					<OccurrenceDate>1759708800000</OccurrenceDate>
 					<OccurrenceTime Class="CodeUnitValue">
@@ -7882,6 +8934,312 @@ unit.busyNow = false;]]></Code>
 			</Presentation>
 
 		</ActiveObjectClass>
+		<!--   =========   Active Object Class   ========  -->
+		<ActiveObjectClass>
+			<Id>1762300000027</Id>
+			<Name><![CDATA[PickTour]]></Name>
+			<Generic>false</Generic>
+			<GenericParameter>
+				<Id>1762300000028</Id>
+				<Name><![CDATA[1762300000028]]></Name>
+				<GenericParameterValue Class="CodeValue">
+					<Code><![CDATA[T extends Agent]]></Code>
+				</GenericParameterValue>
+				<GenericParameterLabel><![CDATA[Generic parameter:]]></GenericParameterLabel>
+			</GenericParameter>
+			<FlowChartsUsage>ENTITY</FlowChartsUsage>
+			<SamplesToKeep>100</SamplesToKeep>
+			<LimitNumberOfArrayElements>false</LimitNumberOfArrayElements>
+			<ElementsLimitValue>100</ElementsLimitValue>
+			<MakeDefaultViewArea>true</MakeDefaultViewArea>
+			<SceneGridColor/>
+			<SceneBackgroundColor>-4144960</SceneBackgroundColor>
+            <EnvironmentResourceRef></EnvironmentResourceRef>
+            <EnvironmentType>NONE</EnvironmentType>
+            <EnvironmentRotationX>0</EnvironmentRotationX>
+            <EnvironmentRotationY>0</EnvironmentRotationY>
+            <EnvironmentRotationZ>0</EnvironmentRotationZ>
+            <EnvironmentIntensity>1</EnvironmentIntensity>
+			<AgentProperties>
+				<EnvironmentDefinesInitialLocation>true</EnvironmentDefinesInitialLocation>
+				<RotateAnimationTowardsMovement>true</RotateAnimationTowardsMovement>
+				<RotateAnimationVertically>false</RotateAnimationVertically>
+				<VelocityCode Class="CodeUnitValue">
+					<Code><![CDATA[10]]></Code>
+					<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+				</VelocityCode>
+				<MessageType><![CDATA[Object]]></MessageType>
+				<PhysicalLength Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalLength>
+				<PhysicalWidth Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalWidth>
+				<PhysicalHeight Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalHeight>
+			</AgentProperties>
+			<EnvironmentProperties>
+				<EnableSteps>false</EnableSteps>
+				<StepDurationCode Class="CodeUnitValue">
+					<Code><![CDATA[1.0]]></Code>
+					<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+				</StepDurationCode>
+				<SpaceType>CONTINUOUS</SpaceType>
+				<WidthCode><![CDATA[500]]></WidthCode>
+				<HeightCode><![CDATA[500]]></HeightCode>
+				<ZHeightCode><![CDATA[0]]></ZHeightCode>
+				<ColumnsCountCode><![CDATA[100]]></ColumnsCountCode>
+				<RowsCountCode><![CDATA[100]]></RowsCountCode>
+				<NeigborhoodType>MOORE</NeigborhoodType>
+				<LayoutType>USER_DEF</LayoutType>
+				<NetworkType>USER_DEF</NetworkType>
+				<ConnectionsPerAgentCode><![CDATA[2]]></ConnectionsPerAgentCode>
+				<ConnectionsRangeCode><![CDATA[50]]></ConnectionsRangeCode>
+				<NeighborLinkFractionCode><![CDATA[0.95]]></NeighborLinkFractionCode>
+				<MCode><![CDATA[10]]></MCode>
+				<LineStyle>SOLID</LineStyle>
+				<LineWidth>1</LineWidth>
+				<LineColor>-16777216</LineColor>
+				<LineZOrder>UNDER_AGENTS</LineZOrder>
+				<LineArrow>NONE</LineArrow>
+				<LineArrowPosition>END</LineArrowPosition>
+			</EnvironmentProperties>
+			<DatasetsCreationProperties>
+				<AutoCreate>false</AutoCreate>
+					<Id>1762299989959</Id>
+					<OccurrenceAtTime>true</OccurrenceAtTime>
+					<OccurrenceDate>1759708800000</OccurrenceDate>
+					<OccurrenceTime Class="CodeUnitValue">
+						<Code><![CDATA[0]]></Code>
+						<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+					</OccurrenceTime>
+					<RecurrenceCode Class="CodeUnitValue">
+						<Code><![CDATA[1]]></Code>
+						<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+					</RecurrenceCode>
+			</DatasetsCreationProperties>
+			<ScaleRuler>
+				<Id>1762300000030</Id>
+				<Name><![CDATA[scale]]></Name>
+				<X>0</X><Y>-150</Y>
+				<PublicFlag>false</PublicFlag>
+				<PresentationFlag>false</PresentationFlag>
+				<ShowLabel>false</ShowLabel>
+				<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+				<Length>100</Length>
+				<Rotation>0</Rotation>
+				<ScaleType>BASED_ON_LENGTH</ScaleType>
+				<ModelLength>10</ModelLength>
+				<LengthUnits>METER</LengthUnits>
+				<Scale>10</Scale>
+				<InheritedFromParentAgentType>true</InheritedFromParentAgentType>
+			</ScaleRuler>
+			<CurrentLevel>1762300000029</CurrentLevel>
+			<Variables>
+				<Variable Class="PlainVariable">
+					<Id>1762300000043</Id>
+					<Name><![CDATA[plan]]></Name>
+					<X>20</X><Y>40</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[Main.Warehouse.PickPlan]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[null]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+				<Variable Class="PlainVariable">
+					<Id>1762300000044</Id>
+					<Name><![CDATA[picker]]></Name>
+					<X>20</X><Y>60</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[Worker]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[null]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+				<Variable Class="Parameter">
+					<Id>1762300000041</Id>
+					<Name><![CDATA[orders]]></Name>
+					<X>20</X><Y>20</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" ModificatorType="STATIC">
+						<Type><![CDATA[ArrayList<Order>]]></Type>
+						<UnitType><![CDATA[NONE]]></UnitType>
+						<SdArray>false</SdArray>
+						<DefaultValue Class="CodeValue">
+							<Code><![CDATA[null]]></Code>
+						</DefaultValue>
+						<ParameterEditor>
+							<Id>1762300000042</Id>
+							<EditorContolType>TEXT_BOX</EditorContolType>
+							<MinSliderValue><![CDATA[0]]></MinSliderValue>
+							<MaxSliderValue><![CDATA[100]]></MaxSliderValue>
+							<DelimeterType>NO_DELIMETER</DelimeterType>
+						</ParameterEditor>
+					</Properties>                 
+				</Variable>
+			</Variables>
+
+
+			<Presentation>
+				<Level>
+					<Id>1762300000029</Id>
+					<Name><![CDATA[level]]></Name>
+					<X>0</X><Y>0</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<Z>0</Z>
+					<LevelVisibility>ALWAYS_SHOW</LevelVisibility>
+
+
+				</Level>
+			</Presentation>
+
+		</ActiveObjectClass>
+		<!--   =========   Active Object Class   ========  -->
+		<ActiveObjectClass>
+			<Id>1762300000032</Id>
+			<Name><![CDATA[Ticker]]></Name>
+			<Generic>false</Generic>
+			<GenericParameter>
+				<Id>1762300000033</Id>
+				<Name><![CDATA[1762300000033]]></Name>
+				<GenericParameterValue Class="CodeValue">
+					<Code><![CDATA[T extends Agent]]></Code>
+				</GenericParameterValue>
+				<GenericParameterLabel><![CDATA[Generic parameter:]]></GenericParameterLabel>
+			</GenericParameter>
+			<FlowChartsUsage>ENTITY</FlowChartsUsage>
+			<SamplesToKeep>100</SamplesToKeep>
+			<LimitNumberOfArrayElements>false</LimitNumberOfArrayElements>
+			<ElementsLimitValue>100</ElementsLimitValue>
+			<MakeDefaultViewArea>true</MakeDefaultViewArea>
+			<SceneGridColor/>
+			<SceneBackgroundColor>-4144960</SceneBackgroundColor>
+            <EnvironmentResourceRef></EnvironmentResourceRef>
+            <EnvironmentType>NONE</EnvironmentType>
+            <EnvironmentRotationX>0</EnvironmentRotationX>
+            <EnvironmentRotationY>0</EnvironmentRotationY>
+            <EnvironmentRotationZ>0</EnvironmentRotationZ>
+            <EnvironmentIntensity>1</EnvironmentIntensity>
+			<AgentProperties>
+				<EnvironmentDefinesInitialLocation>true</EnvironmentDefinesInitialLocation>
+				<RotateAnimationTowardsMovement>true</RotateAnimationTowardsMovement>
+				<RotateAnimationVertically>false</RotateAnimationVertically>
+				<VelocityCode Class="CodeUnitValue">
+					<Code><![CDATA[10]]></Code>
+					<Unit Class="SpeedUnits"><![CDATA[MPS]]></Unit>
+				</VelocityCode>
+				<MessageType><![CDATA[Object]]></MessageType>
+				<PhysicalLength Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalLength>
+				<PhysicalWidth Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalWidth>
+				<PhysicalHeight Class="CodeUnitValue">
+					<Code><![CDATA[1]]></Code>
+					<Unit Class="LengthUnits"><![CDATA[METER]]></Unit>
+				</PhysicalHeight>
+			</AgentProperties>
+			<EnvironmentProperties>
+				<EnableSteps>false</EnableSteps>
+				<StepDurationCode Class="CodeUnitValue">
+					<Code><![CDATA[1.0]]></Code>
+					<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+				</StepDurationCode>
+				<SpaceType>CONTINUOUS</SpaceType>
+				<WidthCode><![CDATA[500]]></WidthCode>
+				<HeightCode><![CDATA[500]]></HeightCode>
+				<ZHeightCode><![CDATA[0]]></ZHeightCode>
+				<ColumnsCountCode><![CDATA[100]]></ColumnsCountCode>
+				<RowsCountCode><![CDATA[100]]></RowsCountCode>
+				<NeigborhoodType>MOORE</NeigborhoodType>
+				<LayoutType>USER_DEF</LayoutType>
+				<NetworkType>USER_DEF</NetworkType>
+				<ConnectionsPerAgentCode><![CDATA[2]]></ConnectionsPerAgentCode>
+				<ConnectionsRangeCode><![CDATA[50]]></ConnectionsRangeCode>
+				<NeighborLinkFractionCode><![CDATA[0.95]]></NeighborLinkFractionCode>
+				<MCode><![CDATA[10]]></MCode>
+				<LineStyle>SOLID</LineStyle>
+				<LineWidth>1</LineWidth>
+				<LineColor>-16777216</LineColor>
+				<LineZOrder>UNDER_AGENTS</LineZOrder>
+				<LineArrow>NONE</LineArrow>
+				<LineArrowPosition>END</LineArrowPosition>
+			</EnvironmentProperties>
+			<DatasetsCreationProperties>
+				<AutoCreate>false</AutoCreate>
+					<Id>1762299989958</Id>
+					<OccurrenceAtTime>true</OccurrenceAtTime>
+					<OccurrenceDate>1759708800000</OccurrenceDate>
+					<OccurrenceTime Class="CodeUnitValue">
+						<Code><![CDATA[0]]></Code>
+						<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+					</OccurrenceTime>
+					<RecurrenceCode Class="CodeUnitValue">
+						<Code><![CDATA[1]]></Code>
+						<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
+					</RecurrenceCode>
+			</DatasetsCreationProperties>
+			<ScaleRuler>
+				<Id>1762300000035</Id>
+				<Name><![CDATA[scale]]></Name>
+				<X>0</X><Y>-150</Y>
+				<PublicFlag>false</PublicFlag>
+				<PresentationFlag>false</PresentationFlag>
+				<ShowLabel>false</ShowLabel>
+				<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+				<Length>100</Length>
+				<Rotation>0</Rotation>
+				<ScaleType>BASED_ON_LENGTH</ScaleType>
+				<ModelLength>10</ModelLength>
+				<LengthUnits>METER</LengthUnits>
+				<Scale>10</Scale>
+				<InheritedFromParentAgentType>true</InheritedFromParentAgentType>
+			</ScaleRuler>
+			<CurrentLevel>1762300000034</CurrentLevel>
+
+
+			<Presentation>
+				<Level>
+					<Id>1762300000034</Id>
+					<Name><![CDATA[level]]></Name>
+					<X>0</X><Y>0</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<Z>0</Z>
+					<LevelVisibility>ALWAYS_SHOW</LevelVisibility>
+
+
+				</Level>
+			</Presentation>
+
+		</ActiveObjectClass>
 	</ActiveObjectClasses>
 	<DifferentialEquationsMethod>EULER</DifferentialEquationsMethod>
 	<MixedEquationsMethod>RK45_NEWTON</MixedEquationsMethod>
@@ -7896,7 +9254,7 @@ unit.busyNow = false;]]></Code>
 		<Height>900</Height>
 	</Frame>
 	<Database>
-		<Id>1762299989965</Id>
+		<Id>1762299989957</Id>
 		<Logging>false</Logging>
 		<AutoExport>false</AutoExport>
 		<ShutdownCompact>false</ShutdownCompact>
@@ -7933,7 +9291,7 @@ unit.busyNow = false;]]></Code>
 	<Experiments>
 		<!--   =========   Simulation Experiment   ========  -->
 		<SimulationExperiment ActiveObjectClassId="1762300000002">
-			<Id>1762300000115</Id>
+			<Id>1762300000136</Id>
 			<Name><![CDATA[Simulation]]></Name>
 			<CommandLineArguments><![CDATA[]]></CommandLineArguments>
 			<MaximumMemory>1024</MaximumMemory>
@@ -7946,7 +9304,7 @@ unit.busyNow = false;]]></Code>
 
 			<Presentation>
 				<Text>
-					<Id>1762300000116</Id>
+					<Id>1762300000137</Id>
 					<Name><![CDATA[title]]></Name>
 					<X>40</X><Y>30</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -7989,22 +9347,22 @@ unit.busyNow = false;]]></Code>
 		</SimulationExperiment>
 		<!--   =========  Parameter Variation Experiment   ========  -->
 		<ParamVariationExperiment ActiveObjectClassId="1762300000002">
-			<Id>1762300000118</Id>
+			<Id>1762300000139</Id>
 			<Name><![CDATA[CompareLayouts]]></Name>
-			<Description><![CDATA[All candidate layouts x days 1-5 (layoutIndex x seed). Results: results/runs.csv.]]></Description>
+			<Description><![CDATA[Every design in data/layouts/index.txt x synthetic days 1-10 (layoutIndex x seed, common random numbers). Results: results/runs.csv.]]></Description>
 			<CommandLineArguments><![CDATA[]]></CommandLineArguments>
 			<MaximumMemory>1024</MaximumMemory>
 			<RandomNumberGenerationType>fixedSeed</RandomNumberGenerationType>
 			<CustomGeneratorCode>new Random()</CustomGeneratorCode>
 			<AfterSimulationRunCode><![CDATA[runs++;
-traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
+traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 			<SeedValue>1</SeedValue>
 			<SelectionModeForSimultaneousEvents>LIFO</SelectionModeForSimultaneousEvents>
 			<VmArgs><![CDATA[]]></VmArgs>
 			<LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000117</Id>
+					<Id>1762300000138</Id>
 					<Name><![CDATA[runs]]></Name>
 					<X>40</X><Y>300</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8022,7 +9380,7 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 
 			<Presentation>
 				<Text>
-					<Id>1762300000119</Id>
+					<Id>1762300000140</Id>
 					<Name><![CDATA[title]]></Name>
 					<X>40</X><Y>30</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8034,7 +9392,7 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 					<Z>0</Z>
 					<Rotation>0.0</Rotation>
 					<Color>-12490271</Color>
-					<Text><![CDATA[All candidate layouts x days 1-5 (layoutIndex x seed). Results: results/runs.csv.]]></Text>
+					<Text><![CDATA[Every design in data/layouts/index.txt x synthetic days 1-10 (layoutIndex x seed, common random numbers). Results: results/runs.csv.]]></Text>
 					<Font>
 						<Name>SansSerif</Name>
 						<Size>14</Size>
@@ -8043,7 +9401,7 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 					<Alignment>LEFT</Alignment>
 				</Text>
 				<Text>
-					<Id>1762300000120</Id>
+					<Id>1762300000141</Id>
 					<Name><![CDATA[progress]]></Name>
 					<X>40</X><Y>70</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8056,7 +9414,7 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 					<Rotation>0.0</Rotation>
 					<Color>-12490271</Color>
 					<Text><![CDATA[?]]></Text>
-					<TextCode><![CDATA["runs done: " + runs + " of 30"]]></TextCode>
+					<TextCode><![CDATA["runs done: " + runs + " of 60"]]></TextCode>
 					<Font>
 						<Name>SansSerif</Name>
 						<Size>16</Size>
@@ -8068,25 +9426,7 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 
 			<AllowParallelEvaluations>false</AllowParallelEvaluations>
 			<UseFreeformParameters>false</UseFreeformParameters>
-			<NumberOfRuns>30</NumberOfRuns>
-			<FreeformParamValue>	
-				<Id>1762300000041</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000043</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000045</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000047</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000049</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000051</Id>
-			</FreeformParamValue>
+			<NumberOfRuns>60</NumberOfRuns>
 			<FreeformParamValue>	
 				<Id>1762300000053</Id>
 			</FreeformParamValue>
@@ -8105,12 +9445,36 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 			<FreeformParamValue>	
 				<Id>1762300000063</Id>
 			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000065</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000067</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000069</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000071</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000073</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000075</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000077</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000079</Id>
+			</FreeformParamValue>
 			<RangeVariationParamValue>	
-				<Id>1762300000041</Id>
+				<Id>1762300000053</Id>
 				<Type>FIXED</Type>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
-				<Id>1762300000043</Id>
+				<Id>1762300000055</Id>
 				<Type>RANGE</Type>
 				<From Class="CodeValue">
 					<Code><![CDATA[0]]></Code>
@@ -8123,39 +9487,6 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 				</Step>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
-				<Id>1762300000045</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000047</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000049</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000051</Id>
-				<Type>RANGE</Type>
-				<From Class="CodeValue">
-					<Code><![CDATA[1]]></Code>
-				</From>
-				<To Class="CodeValue">
-					<Code><![CDATA[5]]></Code>
-				</To>
-				<Step Class="CodeValue">
-					<Code><![CDATA[1]]></Code>
-				</Step>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000053</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000055</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
 				<Id>1762300000057</Id>
 				<Type>FIXED</Type>
 			</RangeVariationParamValue>
@@ -8169,6 +9500,47 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000063</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000065</Id>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[10]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</Step>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000067</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000069</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000071</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000073</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000075</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000077</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000079</Id>
 				<Type>FIXED</Type>
 			</RangeVariationParamValue>
 			<ModelTimeProperties>
@@ -8197,22 +9569,22 @@ traceln("run " + runs + " of 30 done");]]></AfterSimulationRunCode>
 		</ParamVariationExperiment>
 		<!--   =========  Parameter Variation Experiment   ========  -->
 		<ParamVariationExperiment ActiveObjectClassId="1762300000002">
-			<Id>1762300000122</Id>
-			<Name><![CDATA[StaffPackers]]></Name>
-			<Description><![CDATA[Packers 2..5 x days 1-5 on the default layout. Results: results/runs.csv.]]></Description>
+			<Id>1762300000143</Id>
+			<Name><![CDATA[ValidateRealDays]]></Name>
+			<Description><![CDATA[The as-is layout on the 10 replayed historical days (data/scenarios/real_index.txt). Results: results/runs.csv.]]></Description>
 			<CommandLineArguments><![CDATA[]]></CommandLineArguments>
 			<MaximumMemory>1024</MaximumMemory>
 			<RandomNumberGenerationType>fixedSeed</RandomNumberGenerationType>
 			<CustomGeneratorCode>new Random()</CustomGeneratorCode>
 			<AfterSimulationRunCode><![CDATA[runs++;
-traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
+traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 			<SeedValue>1</SeedValue>
 			<SelectionModeForSimultaneousEvents>LIFO</SelectionModeForSimultaneousEvents>
 			<VmArgs><![CDATA[]]></VmArgs>
 			<LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 			<Variables>
 				<Variable Class="PlainVariable">
-					<Id>1762300000121</Id>
+					<Id>1762300000142</Id>
 					<Name><![CDATA[runs]]></Name>
 					<X>40</X><Y>300</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8230,7 +9602,7 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 
 			<Presentation>
 				<Text>
-					<Id>1762300000123</Id>
+					<Id>1762300000144</Id>
 					<Name><![CDATA[title]]></Name>
 					<X>40</X><Y>30</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8242,7 +9614,7 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 					<Z>0</Z>
 					<Rotation>0.0</Rotation>
 					<Color>-12490271</Color>
-					<Text><![CDATA[Packers 2..5 x days 1-5 on the default layout. Results: results/runs.csv.]]></Text>
+					<Text><![CDATA[The as-is layout on the 10 replayed historical days (data/scenarios/real_index.txt). Results: results/runs.csv.]]></Text>
 					<Font>
 						<Name>SansSerif</Name>
 						<Size>14</Size>
@@ -8251,7 +9623,7 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 					<Alignment>LEFT</Alignment>
 				</Text>
 				<Text>
-					<Id>1762300000124</Id>
+					<Id>1762300000145</Id>
 					<Name><![CDATA[progress]]></Name>
 					<X>40</X><Y>70</Y>
 					<Label><X>10</X><Y>0</Y></Label>
@@ -8264,7 +9636,7 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 					<Rotation>0.0</Rotation>
 					<Color>-12490271</Color>
 					<Text><![CDATA[?]]></Text>
-					<TextCode><![CDATA["runs done: " + runs + " of 20"]]></TextCode>
+					<TextCode><![CDATA["runs done: " + runs + " of 10"]]></TextCode>
 					<Font>
 						<Name>SansSerif</Name>
 						<Size>16</Size>
@@ -8276,25 +9648,7 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 
 			<AllowParallelEvaluations>false</AllowParallelEvaluations>
 			<UseFreeformParameters>false</UseFreeformParameters>
-			<NumberOfRuns>20</NumberOfRuns>
-			<FreeformParamValue>	
-				<Id>1762300000041</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000043</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000045</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000047</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000049</Id>
-			</FreeformParamValue>
-			<FreeformParamValue>	
-				<Id>1762300000051</Id>
-			</FreeformParamValue>
+			<NumberOfRuns>10</NumberOfRuns>
 			<FreeformParamValue>	
 				<Id>1762300000053</Id>
 			</FreeformParamValue>
@@ -8313,55 +9667,37 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 			<FreeformParamValue>	
 				<Id>1762300000063</Id>
 			</FreeformParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000041</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000043</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000045</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000047</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000049</Id>
-				<Type>FIXED</Type>
-			</RangeVariationParamValue>
-			<RangeVariationParamValue>	
-				<Id>1762300000051</Id>
-				<Type>RANGE</Type>
-				<From Class="CodeValue">
-					<Code><![CDATA[1]]></Code>
-				</From>
-				<To Class="CodeValue">
-					<Code><![CDATA[5]]></Code>
-				</To>
-				<Step Class="CodeValue">
-					<Code><![CDATA[1]]></Code>
-				</Step>
-			</RangeVariationParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000065</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000067</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000069</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000071</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000073</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000075</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000077</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000079</Id>
+			</FreeformParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000053</Id>
 				<Type>FIXED</Type>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000055</Id>
-				<Type>RANGE</Type>
-				<From Class="CodeValue">
-					<Code><![CDATA[2]]></Code>
-				</From>
-				<To Class="CodeValue">
-					<Code><![CDATA[5]]></Code>
-				</To>
-				<Step Class="CodeValue">
-					<Code><![CDATA[1]]></Code>
-				</Step>
+				<Type>FIXED</Type>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000057</Id>
@@ -8369,7 +9705,16 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000059</Id>
-				<Type>FIXED</Type>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[10]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</Step>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000061</Id>
@@ -8377,6 +9722,38 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 			</RangeVariationParamValue>
 			<RangeVariationParamValue>	
 				<Id>1762300000063</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000065</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000067</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000069</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000071</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000073</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000075</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000077</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000079</Id>
 				<Type>FIXED</Type>
 			</RangeVariationParamValue>
 			<ModelTimeProperties>
@@ -8388,7 +9765,451 @@ traceln("run " + runs + " of 20 done");]]></AfterSimulationRunCode>
 			</ModelTimeProperties>
 			<PresentationProperties>
 				<EnableZoomAndPanning>true</EnableZoomAndPanning>
-				<Title><![CDATA[WarehouseSim : StaffPackers]]></Title>
+				<Title><![CDATA[WarehouseSim : ValidateRealDays]]></Title>
+				<EnableDeveloperPanel>true</EnableDeveloperPanel>
+				<ShowDeveloperPanelOnStart>false</ShowDeveloperPanelOnStart>
+			</PresentationProperties>
+			<ReplicationsProperties>
+				<UseReplication>false</UseReplication>
+				<FixedReplicationsNumber>true</FixedReplicationsNumber>
+				<ReplicationPerIteration>1</ReplicationPerIteration>
+				<MinimumReplication>2</MinimumReplication>
+				<MaximumReplication>20</MaximumReplication>
+				<ConfidenceLevel>LEVEL_95</ConfidenceLevel>
+				<ErrorPercent>0.5</ErrorPercent>
+				<ExpressionForConfidenceComputation><![CDATA[0]]></ExpressionForConfidenceComputation>
+			</ReplicationsProperties>
+		</ParamVariationExperiment>
+		<!--   =========  Parameter Variation Experiment   ========  -->
+		<ParamVariationExperiment ActiveObjectClassId="1762300000002">
+			<Id>1762300000147</Id>
+			<Name><![CDATA[StaffPickers]]></Name>
+			<Description><![CDATA[Pickers 2..8 x synthetic days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Description>
+			<CommandLineArguments><![CDATA[]]></CommandLineArguments>
+			<MaximumMemory>1024</MaximumMemory>
+			<RandomNumberGenerationType>fixedSeed</RandomNumberGenerationType>
+			<CustomGeneratorCode>new Random()</CustomGeneratorCode>
+			<AfterSimulationRunCode><![CDATA[runs++;
+traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
+			<SeedValue>1</SeedValue>
+			<SelectionModeForSimultaneousEvents>LIFO</SelectionModeForSimultaneousEvents>
+			<VmArgs><![CDATA[]]></VmArgs>
+			<LoadRootFromSnapshot>false</LoadRootFromSnapshot>
+			<Variables>
+				<Variable Class="PlainVariable">
+					<Id>1762300000146</Id>
+					<Name><![CDATA[runs]]></Name>
+					<X>40</X><Y>300</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[int]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[0]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+			</Variables>
+
+			<Presentation>
+				<Text>
+					<Id>1762300000148</Id>
+					<Name><![CDATA[title]]></Name>
+					<X>40</X><Y>30</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<EmbeddedIcon>false</EmbeddedIcon>
+					<Z>0</Z>
+					<Rotation>0.0</Rotation>
+					<Color>-12490271</Color>
+					<Text><![CDATA[Pickers 2..8 x synthetic days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Text>
+					<Font>
+						<Name>SansSerif</Name>
+						<Size>14</Size>
+						<Style>0</Style>
+					</Font>
+					<Alignment>LEFT</Alignment>
+				</Text>
+				<Text>
+					<Id>1762300000149</Id>
+					<Name><![CDATA[progress]]></Name>
+					<X>40</X><Y>70</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<EmbeddedIcon>false</EmbeddedIcon>
+					<Z>0</Z>
+					<Rotation>0.0</Rotation>
+					<Color>-12490271</Color>
+					<Text><![CDATA[?]]></Text>
+					<TextCode><![CDATA["runs done: " + runs + " of 70"]]></TextCode>
+					<Font>
+						<Name>SansSerif</Name>
+						<Size>16</Size>
+						<Style>1</Style>
+					</Font>
+					<Alignment>LEFT</Alignment>
+				</Text>
+			</Presentation>
+
+			<AllowParallelEvaluations>false</AllowParallelEvaluations>
+			<UseFreeformParameters>false</UseFreeformParameters>
+			<NumberOfRuns>70</NumberOfRuns>
+			<FreeformParamValue>	
+				<Id>1762300000053</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000055</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000057</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000059</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000061</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000063</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000065</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000067</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000069</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000071</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000073</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000075</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000077</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000079</Id>
+			</FreeformParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000053</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000055</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000057</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000059</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000061</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000063</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000065</Id>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[10]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</Step>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000067</Id>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[2]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[8]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</Step>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000069</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000071</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000073</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000075</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000077</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000079</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<ModelTimeProperties>
+				<StopOption><![CDATA[Stop at specified time]]></StopOption>
+				<InitialDate><![CDATA[1759708800000]]></InitialDate>	
+				<InitialTime><![CDATA[0.0]]></InitialTime>	
+				<FinalDate><![CDATA[1760108800000]]></FinalDate>	
+				<FinalTime><![CDATA[400000.0]]></FinalTime>	
+			</ModelTimeProperties>
+			<PresentationProperties>
+				<EnableZoomAndPanning>true</EnableZoomAndPanning>
+				<Title><![CDATA[WarehouseSim : StaffPickers]]></Title>
+				<EnableDeveloperPanel>true</EnableDeveloperPanel>
+				<ShowDeveloperPanelOnStart>false</ShowDeveloperPanelOnStart>
+			</PresentationProperties>
+			<ReplicationsProperties>
+				<UseReplication>false</UseReplication>
+				<FixedReplicationsNumber>true</FixedReplicationsNumber>
+				<ReplicationPerIteration>1</ReplicationPerIteration>
+				<MinimumReplication>2</MinimumReplication>
+				<MaximumReplication>20</MaximumReplication>
+				<ConfidenceLevel>LEVEL_95</ConfidenceLevel>
+				<ErrorPercent>0.5</ErrorPercent>
+				<ExpressionForConfidenceComputation><![CDATA[0]]></ExpressionForConfidenceComputation>
+			</ReplicationsProperties>
+		</ParamVariationExperiment>
+		<!--   =========  Parameter Variation Experiment   ========  -->
+		<ParamVariationExperiment ActiveObjectClassId="1762300000002">
+			<Id>1762300000151</Id>
+			<Name><![CDATA[CartSize]]></Name>
+			<Description><![CDATA[Cart size 0 (single-order picking), 12, 24, 36 units x days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Description>
+			<CommandLineArguments><![CDATA[]]></CommandLineArguments>
+			<MaximumMemory>1024</MaximumMemory>
+			<RandomNumberGenerationType>fixedSeed</RandomNumberGenerationType>
+			<CustomGeneratorCode>new Random()</CustomGeneratorCode>
+			<AfterSimulationRunCode><![CDATA[runs++;
+traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
+			<SeedValue>1</SeedValue>
+			<SelectionModeForSimultaneousEvents>LIFO</SelectionModeForSimultaneousEvents>
+			<VmArgs><![CDATA[]]></VmArgs>
+			<LoadRootFromSnapshot>false</LoadRootFromSnapshot>
+			<Variables>
+				<Variable Class="PlainVariable">
+					<Id>1762300000150</Id>
+					<Name><![CDATA[runs]]></Name>
+					<X>40</X><Y>300</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>false</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>true</ShowLabel>
+					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
+						<Type><![CDATA[int]]></Type>        
+						<InitialValue Class="CodeValue">
+							<Code><![CDATA[0]]></Code>
+						</InitialValue>
+					</Properties>
+				</Variable>
+			</Variables>
+
+			<Presentation>
+				<Text>
+					<Id>1762300000152</Id>
+					<Name><![CDATA[title]]></Name>
+					<X>40</X><Y>30</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<EmbeddedIcon>false</EmbeddedIcon>
+					<Z>0</Z>
+					<Rotation>0.0</Rotation>
+					<Color>-12490271</Color>
+					<Text><![CDATA[Cart size 0 (single-order picking), 12, 24, 36 units x days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Text>
+					<Font>
+						<Name>SansSerif</Name>
+						<Size>14</Size>
+						<Style>0</Style>
+					</Font>
+					<Alignment>LEFT</Alignment>
+				</Text>
+				<Text>
+					<Id>1762300000153</Id>
+					<Name><![CDATA[progress]]></Name>
+					<X>40</X><Y>70</Y>
+					<Label><X>10</X><Y>0</Y></Label>
+					<PublicFlag>true</PublicFlag>
+					<PresentationFlag>true</PresentationFlag>
+					<ShowLabel>false</ShowLabel>
+					<DrawMode>SHAPE_DRAW_2D3D</DrawMode>
+					<EmbeddedIcon>false</EmbeddedIcon>
+					<Z>0</Z>
+					<Rotation>0.0</Rotation>
+					<Color>-12490271</Color>
+					<Text><![CDATA[?]]></Text>
+					<TextCode><![CDATA["runs done: " + runs + " of 40"]]></TextCode>
+					<Font>
+						<Name>SansSerif</Name>
+						<Size>16</Size>
+						<Style>1</Style>
+					</Font>
+					<Alignment>LEFT</Alignment>
+				</Text>
+			</Presentation>
+
+			<AllowParallelEvaluations>false</AllowParallelEvaluations>
+			<UseFreeformParameters>false</UseFreeformParameters>
+			<NumberOfRuns>40</NumberOfRuns>
+			<FreeformParamValue>	
+				<Id>1762300000053</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000055</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000057</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000059</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000061</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000063</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000065</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000067</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000069</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000071</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000073</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000075</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000077</Id>
+			</FreeformParamValue>
+			<FreeformParamValue>	
+				<Id>1762300000079</Id>
+			</FreeformParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000053</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000055</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000057</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000059</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000061</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000063</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000065</Id>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[10]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[1]]></Code>
+				</Step>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000067</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000069</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000071</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000073</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000075</Id>
+				<Type>RANGE</Type>
+				<From Class="CodeValue">
+					<Code><![CDATA[0]]></Code>
+				</From>
+				<To Class="CodeValue">
+					<Code><![CDATA[36]]></Code>
+				</To>
+				<Step Class="CodeValue">
+					<Code><![CDATA[12]]></Code>
+				</Step>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000077</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<RangeVariationParamValue>	
+				<Id>1762300000079</Id>
+				<Type>FIXED</Type>
+			</RangeVariationParamValue>
+			<ModelTimeProperties>
+				<StopOption><![CDATA[Stop at specified time]]></StopOption>
+				<InitialDate><![CDATA[1759708800000]]></InitialDate>	
+				<InitialTime><![CDATA[0.0]]></InitialTime>	
+				<FinalDate><![CDATA[1760108800000]]></FinalDate>	
+				<FinalTime><![CDATA[400000.0]]></FinalTime>	
+			</ModelTimeProperties>
+			<PresentationProperties>
+				<EnableZoomAndPanning>true</EnableZoomAndPanning>
+				<Title><![CDATA[WarehouseSim : CartSize]]></Title>
 				<EnableDeveloperPanel>true</EnableDeveloperPanel>
 				<ShowDeveloperPanelOnStart>false</ShowDeveloperPanelOnStart>
 			</PresentationProperties>

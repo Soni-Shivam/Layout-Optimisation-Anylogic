@@ -1,0 +1,39 @@
+stage 1a: depot scan (as-is and abc slotting)
+stage 1b: genetic algorithm
+  generation  0: best  180.68 m  (D48.27_111.1-P3-X61.6-abc), evaluated 24 designs
+  generation  1: best  180.68 m  (D48.27_111.1-P3-X61.6-abc), evaluated 42 designs
+  generation  2: best  178.99 m  (D48.27_111.1-P3-X59.93-abc), evaluated 60 designs
+  generation  3: best  178.99 m  (D48.27_111.1-P3-X59.93-abc), evaluated 77 designs
+  generation  4: best  178.99 m  (D48.27_111.1-P3-X59.93-abc), evaluated 96 designs
+  generation  5: best  177.78 m  (D48.27_111.1-P3-X11.6_59.93-abc), evaluated 113 designs
+  generation  6: best  177.12 m  (D43.27_102.1-P3-X59.93-abc), evaluated 131 designs
+  generation  7: best  177.12 m  (D43.27_102.1-P3-X59.93-abc), evaluated 145 designs
+  generation  8: best  177.11 m  (D43.27_102.1-P3-X51.6-abc), evaluated 160 designs
+  generation  9: best  175.61 m  (D43.27_102.1-P3-X11.6_59.93-abc), evaluated 177 designs
+  generation 10: best  175.61 m  (D43.27_102.1-P3-X11.6_59.93-abc), evaluated 192 designs
+  generation 11: best  175.24 m  (D46.6_93.1-P3-X26.6_59.93-abc), evaluated 213 designs
+  generation 12: best  173.35 m  (D46.6_111.1-P3-X18.27_53.27-abc), evaluated 230 designs
+  generation 13: best  173.35 m  (D46.6_111.1-P3-X18.27_53.27-abc), evaluated 251 designs
+stage 2: DES ranking with common random numbers
+stage 3: pickers x cart size on D46.6_111.1-P3-X18.27_53.27-abc
+stage 4: robustness to the assumed pick time
+D40.3_63.1-P3-Xnone-asis                 nodes  1096  slots  4318  mean depot->slot   69.3 m
+D40.3_63.1-P3-Xnone-random               nodes  1096  slots  3384  mean depot->slot   57.3 m
+D40.3_63.1-P3-Xnone-class                nodes  1096  slots  3384  mean depot->slot   46.8 m
+D40.3_63.1-P3-Xnone-abc                  nodes  1096  slots  3384  mean depot->slot   46.8 m
+D46.6_111.1-P3-X18.27_53.27-abc          nodes  1146  slots  3184  mean depot->slot   43.7 m
+D34.93_102.1-P3-X14.93_23.27-abc         nodes  1160  slots  3128  mean depot->slot   41.0 m
+{
+  "recommended": "D46.6_111.1-P3-X18.27_53.27-abc",
+  "operate_choice": [
+    3,
+    9075.66668,
+    36,
+    98.84013999999999,
+    7187.910040000001
+  ],
+  "ga_best": "D46.6_111.1-P3-X18.27_53.27-abc",
+  "ga_evaluated": 251
+}
+python3 -m whsim.optimize  265.36s user 6.28s system 146% cpu 3:05.43 total
+exit 0

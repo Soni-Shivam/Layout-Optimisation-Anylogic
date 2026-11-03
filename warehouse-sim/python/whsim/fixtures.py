@@ -28,7 +28,7 @@ TINY = [
 def main():
     out = ROOT / "build" / "fixtures"
     out.mkdir(parents=True, exist_ok=True)
-    lay = compile_layout(Grid.parse(TINY, cell_m=2.0, levels=1), [("X", 3.0), ("Y", 2.0), ("Z", 1.0)], "abc", "tiny")
+    lay = compile_layout(Grid.parse(TINY, cell_w=2.0, levels=1), [("X", 3.0), ("Y", 2.0), ("Z", 1.0)], "abc", "tiny")
     (out / "tiny_layout.json").write_text(json.dumps(lay))
     orders = {}
     for t, typ, oid, sku, q in scenario.read_day(DATA / "scenarios" / "day_1.csv"):

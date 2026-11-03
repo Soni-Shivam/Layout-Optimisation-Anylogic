@@ -3,11 +3,16 @@ package wh;
 import java.util.List;
 import java.util.Map;
 
-/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, service times. */
+/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, batching, service times. */
 public final class RunConfig {
   public double horizon, promiseLead, walkSpeed, putawaySpeed;
   public double[] cutoffs;
   public int pickers, packers, receivers, putaway, recvPerCell;
+  /** Batch picking: a cart holds cartUnits units (0 = single-order picking), at most maxOrders orders (0 = no limit). */
+  public int cartUnits, maxOrders;
+  /** Wave release: a cart leaves when the waiting units fill it or the oldest waiting order has waited maxWait s;
+   *  the rule is re-checked every tick s. */
+  public double maxWait, tick;
   public Dist pickPerLine, packPerOrder, packPerUnit, receivePerLine, putawayHandling;
 
   public static RunConfig load(String path) { return parse(Json.read(path)); }
@@ -30,6 +35,11 @@ public final class RunConfig {
     c.walkSpeed = Json.num(Json.get(m, "walk_speed_mps"), "walk_speed_mps");
     c.putawaySpeed = Json.num(Json.get(m, "putaway_speed_mps"), "putaway_speed_mps");
     c.recvPerCell = Json.integer(Json.get(m, "recv_buffer_per_cell"), "recv_buffer_per_cell");
+    Map<String, Object> b = Json.obj(Json.get(m, "batching"), "batching");
+    c.cartUnits = Json.integer(Json.get(b, "cart_units"), "batching.cart_units");
+    c.maxOrders = Json.integer(Json.get(b, "max_orders"), "batching.max_orders");
+    c.maxWait = Json.num(Json.get(b, "max_wait_s"), "batching.max_wait_s");
+    c.tick = Json.num(Json.get(b, "tick_s"), "batching.tick_s");
     Map<String, Object> t = Json.obj(Json.get(m, "times"), "times");
     c.pickPerLine = Dist.of(Json.get(t, "pick_per_line_s"), "times.pick_per_line_s");
     c.packPerOrder = Dist.of(Json.get(t, "pack_per_order_s"), "times.pack_per_order_s");
@@ -53,6 +63,8 @@ public final class RunConfig {
       throw new IllegalArgumentException("every resource count must be >= 1");
     if (!(walkSpeed > 0 && putawaySpeed > 0)) throw new IllegalArgumentException("speeds must be > 0");
     if (recvPerCell < 1) throw new IllegalArgumentException("recv_buffer_per_cell must be >= 1");
+    if (cartUnits < 0 || maxOrders < 0) throw new IllegalArgumentException("batching.cart_units and max_orders must be >= 0");
+    if (maxWait < 0 || !(tick > 0)) throw new IllegalArgumentException("batching.max_wait_s must be >= 0 and tick_s > 0");
   }
 
   /** First cut-off at or after t, or +infinity if none is left today. */

@@ -1,6 +1,6 @@
 import pytest
 
-from whsim import scenario, templates
+from whsim import design, scenario
 from whsim.layout import Grid, LayoutError, compile_layout, graph_of, pick_tour, validate
 
 # a hand-checkable warehouse: 7 x 7, cell 2 m
@@ -17,7 +17,7 @@ SKUS = [("X", 3.0), ("Y", 2.0), ("Z", 1.0)]
 
 
 def tiny(levels=1):
-    return Grid.parse(TINY, cell_m=2.0, levels=levels)
+    return Grid.parse(TINY, cell_w=2.0, levels=levels)
 
 
 def test_tiny_is_valid_and_compiles():
@@ -88,17 +88,6 @@ def test_abc_puts_fast_movers_closest():
     assert sum(s["sku"] is not None for s in lay["slots"]) == 3
 
 
-@pytest.mark.parametrize("lid", list(templates.CANDIDATES))
-def test_all_candidates_valid(lid):
-    p = dict(templates.CANDIDATES[lid])
-    slotting = p.pop("slotting")
-    g = templates.parallel_aisle(**p)
-    skus = [(s, w) for s, w, _ in scenario.make_skus(400)]
-    assert validate(g, len(skus)) == []
-    lay = compile_layout(g, skus, slotting, lid)
-    assert len({s["sku"] for s in lay["slots"] if s["sku"]}) == 400
-
-
 def test_scenario_format():
     skus = scenario.make_skus(50)
     rows = scenario.make_day(skus, seed=3)
@@ -115,8 +104,46 @@ def test_scenario_format():
     assert scenario.make_day(skus, seed=3) == rows         # reproducible
 
 
-@pytest.mark.parametrize("kw", [dict(cols=12, pack="near_out", n_pack=3), dict(cols=12, pack="central", n_pack=5),
-                                dict(n_pack=0), dict(pack="side")])
-def test_template_refuses_parameters_that_do_not_fit(kw):
+def test_rectangular_cells_and_origin():
+    g = Grid.parse(TINY, cell_w=2.0, levels=1, cell_h=3.0, origin=(10.0, -5.0))
+    lay = compile_layout(g, SKUS, "abc", "rect")
+    node = {(n[0], n[1]): n for n in lay["nodes"]}
+    assert node[(1, 1)][2:] == [10.0 + 1.5 * 2.0, -5.0 + 1.5 * 3.0]
+    lens = {(round(w, 6)) for _, _, w in lay["edges"]}
+    assert lens == {2.0, 3.0}                      # across = cell_w, along = cell_h
+
+
+@pytest.mark.parametrize("slotting", ["random", "class", "abc"])
+def test_slotting_policies_assign_every_sku_once(slotting):
+    skus = [(f"K{i}", 1.0 / (i + 1)) for i in range(6)]
+    lay = compile_layout(tiny(levels=2), skus, slotting, "t")
+    used = [s["sku"] for s in lay["slots"] if s["sku"]]
+    assert sorted(used) == sorted(k for k, _ in skus)
+
+
+def test_real_warehouse_geometry():
+    skus = [(f"K{i}", 1.0 / (i + 1)) for i in range(2515)]
+    lay = design.apply_design({}, skus)
+    st = lay["stats"]
+    assert st["n_skus"] == 2515 and st["n_slots"] == (864 - 18) * design.LEVELS
+    # the baseline depot is the real one at (40.3, 63.1) m (snapped within one cell)
+    dx, dy = lay["params"]["depot_snapped"]
+    assert abs(dx - 40.3) <= design.CELL_W and abs(dy - 63.1) <= design.CELL_H
+    # every real bay is a shelf cell at its own coordinates (within the snapping error)
+    shelf = {(r, c) for r, row in enumerate(lay["grid"]) for c, t in enumerate(row.split()) if t == "S"}
+    for x, y, r, c in design.read_bays():
+        if c not in design.CROSS_COLS:
+            assert (r, c) in shelf
+            gx, gy = Grid([], design.CELL_W, design.CELL_H, 1, design.ORIGIN).xy(r, c)
+            assert abs(gx - x) < 0.4 and abs(gy - y) < 0.4        # snapping error (max 0.37 m)
+
+
+def test_design_cross_aisle_and_depot_move():
+    skus = [(f"K{i}", 1.0 / (i + 1)) for i in range(2515)]
+    base = design.apply_design({"slotting": "abc"}, skus)
+    moved = design.apply_design({"slotting": "abc", "depot": [20.0, 30.0], "cross_aisles": [23.3]}, skus)
+    assert moved["stats"]["n_slots"] < base["stats"]["n_slots"]          # the new aisle replaced a rack column
+    assert abs(moved["params"]["depot_snapped"][0] - 20.0) <= design.CELL_W
+    assert moved["id"] == "D20_30-P3-X23.3-abc"
     with pytest.raises(ValueError):
-        templates.parallel_aisle(**kw)
+        design.apply_design({"cross_aisles": [40.3]}, skus)              # already an aisle

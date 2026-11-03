@@ -60,9 +60,10 @@ import com.anylogic.libraries.processmodeling.*;
 
 @SuppressWarnings("all")
 public class Main extends Agent {
-  public String layoutFile = "data/layouts/I_v_c0_central_abc.json";
+  public String layoutFile = "data/layouts/D40.3_63.1-P3-Xnone-asis.json";
   public int layoutIndex = -1;
   public String scenarioFile = "data/scenarios/day_{seed}.csv";
+  public int realDay = 0;
   public String skuFile = "data/skus.csv";
   public String configFile = "data/config/run_config.json";
   public int seed = 1;
@@ -70,6 +71,7 @@ public class Main extends Agent {
   public int nPackers = -1;
   public int nReceivers = -1;
   public int nPutaway = -1;
+  public int cartUnits = -1;
   public boolean writeOrders = true;
   public String resultsDir = "results";
   public Warehouse wh = null;
@@ -87,18 +89,23 @@ public class Main extends Agent {
   public int nPicked = 0;
   public int nPacked = 0;
   public int nShipped = 0;
+  public int nTours = 0;
+  public ArrayList<Order> pending = new ArrayList<Order>();
   public boolean done = false;
   public ShapeTopLevelPresentationGroup presentation;
   public com.anylogic.libraries.processmodeling.Enter<Order> orderIn;
   public com.anylogic.libraries.processmodeling.Delay<Order> orderArrive;
   public com.anylogic.libraries.processmodeling.SelectOutput<Order> stockCheck;
   public com.anylogic.libraries.processmodeling.Wait<Order> holdWait;
-  public com.anylogic.libraries.processmodeling.Seize<Order> pickSeize;
-  public com.anylogic.libraries.processmodeling.Delay<Order> pickWalk;
-  public com.anylogic.libraries.processmodeling.Release<Order> pickRelease;
+  public com.anylogic.libraries.processmodeling.Wait<Order> pickPool;
   public com.anylogic.libraries.processmodeling.Service<Order> pack;
   public com.anylogic.libraries.processmodeling.Delay<Order> staging;
   public com.anylogic.libraries.processmodeling.Sink<Order> shipped;
+  public com.anylogic.libraries.processmodeling.Enter<PickTour> tourIn;
+  public com.anylogic.libraries.processmodeling.Seize<PickTour> tourSeize;
+  public com.anylogic.libraries.processmodeling.Delay<PickTour> tourWalk;
+  public com.anylogic.libraries.processmodeling.Release<PickTour> tourRelease;
+  public com.anylogic.libraries.processmodeling.Sink<PickTour> tourDone;
   public com.anylogic.libraries.processmodeling.Enter<Receipt> receiptIn;
   public com.anylogic.libraries.processmodeling.Delay<Receipt> receiptArrive;
   public com.anylogic.libraries.processmodeling.Service<Receipt> receive;
@@ -109,6 +116,9 @@ public class Main extends Agent {
   public com.anylogic.libraries.processmodeling.Enter<DayClock> dayClockIn;
   public com.anylogic.libraries.processmodeling.Delay<DayClock> endOfDay;
   public com.anylogic.libraries.processmodeling.Sink<DayClock> dayEnd;
+  public com.anylogic.libraries.processmodeling.Enter<Ticker> tickIn;
+  public com.anylogic.libraries.processmodeling.Delay<Ticker> tick;
+  public com.anylogic.libraries.processmodeling.Sink<Ticker> tickOut;
   public com.anylogic.libraries.processmodeling.ResourcePool<Worker> pickerPool;
   public com.anylogic.libraries.processmodeling.ResourcePool<Worker> packerPool;
   public com.anylogic.libraries.processmodeling.ResourcePool<Worker> receiverPool;
@@ -129,6 +139,19 @@ if (layoutIndex >= 0) {
 	layoutPath = "data/layouts/" + names.get(layoutIndex);
 }
 scenarioPath = scenarioFile.replace("{seed}", String.valueOf(seed));
+// realDay k >= 1: replay the k-th historical day listed in data/scenarios/real_index.txt instead
+if (realDay > 0) {
+	List<String> days = new ArrayList<String>();
+	try {
+		for (String s : java.nio.file.Files.readAllLines(java.nio.file.Paths.get("data/scenarios/real_index.txt")))
+			if (!s.trim().isEmpty()) days.add(s.trim());
+	} catch (java.io.IOException e) {
+		throw new IllegalArgumentException("cannot read data/scenarios/real_index.txt: " + e.getMessage());
+	}
+	if (realDay > days.size())
+		throw new IllegalArgumentException("realDay = " + realDay + " but real_index.txt lists " + days.size() + " days");
+	scenarioPath = "data/scenarios/" + days.get(realDay - 1);
+}
 // 2. load every input file and check them against each other (clear error message if anything is wrong)
 wh = Warehouse.load(layoutPath, configFile, scenarioPath, skuFile, seed);
 kpi = new Kpi(wh);
@@ -141,6 +164,7 @@ pickerPool.set_capacity(staff[0]);
 packerPool.set_capacity(staff[1]);
 receiverPool.set_capacity(staff[2]);
 putawayPool.set_capacity(staff[3]);
+if (cartUnits >= 0) wh.cfg.cartUnits = cartUnits;      // what-if: cart size (0 = single-order picking)
 // 4. build the warehouse picture from the layout
 drawLayout();
 // 5. the workload enters the flowchart; each order / receipt line waits in its arrival delay until its time
@@ -148,6 +172,7 @@ drawLayout();
 for (ScenarioData.OrderSpec s : wh.scenario.orders) orderIn.take(new Order(s));
 for (ScenarioData.ReceiptSpec s : wh.scenario.receipts) receiptIn.take(new Receipt(s));
 dayClockIn.take(new DayClock());
+tickIn.take(new Ticker());
 traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.scenario.orders.size() + " orders and "
 	+ wh.scenario.receipts.size() + " receipt lines from " + scenarioPath + ", seed " + seed
 	+ ", staff pick/pack/receive/putaway = " + staff[0] + "/" + staff[1] + "/" + staff[2] + "/" + staff[3]);
@@ -181,19 +206,42 @@ for (Order o : go) {
 	holdWait.free(o);
 }
   }
-  double beginPick(Order a) {
-if (a.pick == null) {       // plan once (the delay time may be evaluated more than once)
-	kpi.pickStarted(a.spec, time());
-	a.pick = wh.planPick(a.spec, time());
-	if (a.picker != null) a.picker.motion = a.pick.motion;
+  void dispatch() {
+// a free picker takes the next cart (Warehouse.formBatch) as soon as the wave release rule allows it;
+// pending = released orders that are waiting in pickPool and are not on a cart yet, oldest first
+while (!pending.isEmpty()) {
+	if (pickerPool.idle() <= tourSeize.size()) return;      // every free picker already has a cart waiting
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : pending) specs.add(o.spec);
+	if (!wh.releaseNow(specs, kpi.oRel[specs.get(0).index], time())) return;
+	int[] pos = wh.formBatch(specs);
+	ArrayList<Order> batch = new ArrayList<Order>();
+	for (int i = pos.length - 1; i >= 0; i--) batch.add(0, pending.remove(pos[i]));
+	tourIn.take(new PickTour(batch));
 }
-return a.pick.duration;
   }
-  void endPick(Order a) {
-nPicked++;
-wh.inv.consume(a.spec);
-kpi.pickEnded(a.spec, time(), a.pick);
+  double beginTour(PickTour a) {
+if (a.plan == null) {       // plan once (the delay time may be evaluated more than once)
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : a.orders) {
+		specs.add(o.spec);
+		kpi.pickStarted(o.spec, time());
+	}
+	a.plan = wh.planBatch(specs, time());
+	if (a.picker != null) a.picker.motion = a.plan.motion;
+}
+return a.plan.duration;
+  }
+  void endTour(PickTour a) {
+for (Order o : a.orders) {
+	nPicked++;
+	wh.inv.consume(o.spec);
+	kpi.pickEnded(o.spec, time(), a.plan);
+}
+kpi.tourEnded(a.plan);
+nTours++;
 if (a.picker != null) a.picker.motion = null;
+for (Order o : a.orders) pickPool.free(o);      // the picked orders go on to packing
   }
   double stageTime(Order a) {
 if (Double.isNaN(kpi.oPacked[a.spec.index])) {     // once per order
@@ -249,17 +297,23 @@ switch (t) {
 	default: return Color.WHITE;
 }
   }
+  double sx(double x) {
+return ox + (x - wh.layout.originX) * px;
+  }
+  double sy(double y) {
+return oy + (wh.layout.originY + wh.layout.heightM() - y) * px;
+  }
   void drawLayout() {
 if (presentation == null) return;          // no animation in this experiment
 LayoutData L = wh.layout;
-px = Math.min(900.0 / L.widthM(), 600.0 / L.heightM());
-double c = L.cellM * px;
+px = Math.min(900.0 / L.widthM(), 700.0 / L.heightM());
+double cw = L.cellW * px, ch = L.cellH * px;
 int k = 0;                                 // insert at the bottom so the worker dots stay on top
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
-		s.setPos(ox + q * c, oy + r * c);
-		s.setSize(c, c);
+		s.setPos(sx(L.originX + q * L.cellW), sy(L.originY + (r + 1) * L.cellH));
+		s.setSize(cw, ch);
 		s.setFillColor(cellColor(L.grid[r][q]));
 		s.setLineColor(new Color(255, 255, 255));
 		s.setLineWidth(0.5);
@@ -269,7 +323,7 @@ for (int r = 0; r < L.rows; r++) {
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
 	ShapeText t = new ShapeText();
-	t.setPos(ox + f.x * px, oy + f.y * px - 5);
+	t.setPos(sx(f.x), sy(f.y) - 4);
 	t.setText(f.id);
 	t.setColor(Color.WHITE);
 	t.setFont(new Font("SansSerif", Font.BOLD, 8));
@@ -277,10 +331,10 @@ for (LayoutData.Facility f : L.facilities) {
 	presentation.insert(k++, t);
 }
 ShapeText title = new ShapeText();
-title.setPos(ox, oy + L.rows * c + 6);
-title.setText("Layout " + L.id + "  (" + L.cols + " x " + L.rows + " cells of " + L.cellM + " m, " + L.slotId.length
-	+ " slots, slotting " + L.slotting + ")   grey = aisle, brown = shelf, green DI = inbound dock, blue DO = outbound dock, "
-	+ "yellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
+title.setPos(ox, oy + L.heightM() * px + 6);
+title.setText("Layout " + L.id + "\n" + L.cols + " x " + L.rows + " cells of " + String.format("%.2f x %.2f", L.cellW, L.cellH)
+	+ " m, " + L.slotId.length + " slots, slotting " + L.slotting + "\ngrey = aisle, brown = shelf, green DI = inbound dock, "
+	+ "blue DO = outbound dock,\nyellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
 title.setColor(new Color(69, 90, 100));
 title.setFont(new Font("SansSerif", Font.PLAIN, 11));
 presentation.insert(k++, title);
@@ -300,8 +354,8 @@ return new double[]{f.x, f.y};
   double[] workerXY(int i) {
 Worker u = workers.get(i);
 double[] p = u.motion != null ? u.motion.at(time()) : homeXY(u);
-double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellM;     // spread workers that share a spot
-return new double[]{ox + (p[0] + off) * px, oy + (p[1] + off) * px};
+double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellW;     // spread workers that share a spot
+return new double[]{sx(p[0] + off), sy(p[1] + off)};
   }
   boolean workerVisible(int i) {
 return wh != null && i < workers.size();
@@ -316,11 +370,11 @@ if (wh == null) return "loading ...";
 long t = (long) time();
 return String.format("%s   seed %d   day file %s%n"
 	+ "clock %02d:%02d:%02d (day ends at %s s)%n"
-	+ "orders: arrived %d   held now %d   picked %d   packed %d   shipped %d   in system %d%n"
+	+ "orders: arrived %d   held now %d   waiting for a cart %d   picked %d (%d carts)   packed %d   shipped %d   in system %d%n"
 	+ "busy: pickers %d/%d   packers %d/%d   receivers %d/%d   putaway %d/%d%n"
 	+ "receiving buffer %d / %d lines   staging %d orders   stock on hand %d units",
 	wh.layout.id, seed, scenarioPath, t / 3600, (t / 60) % 60, t % 60, Kpi.fmt(wh.cfg.horizon),
-	nArrived, (int) kpi.held.value(), nPicked, nPacked, nShipped, (int) kpi.inSystem.value(),
+	nArrived, (int) kpi.held.value(), pending.size(), nPicked, nTours, nPacked, nShipped, (int) kpi.inSystem.value(),
 	pickerPool.busy(), staff[0], packerPool.busy(), staff[1], receiverPool.busy(), staff[2], putawayPool.busy(), staff[3],
 	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), (int) kpi.staging.value(), wh.inv.totalOnHand());
   }
@@ -332,135 +386,153 @@ return max(0, agent.spec.t - time());
   boolean _snippet2(Order agent) {
 return admit(agent);
   }
-  // pickSeize.resourcePool
-  com.anylogic.libraries.processmodeling.ResourcePool _snippet3(Order agent) {
-return pickerPool;
-  }
-  // pickSeize.onSeizeUnit
-  void _snippet4(Order agent, Agent unit) {
-agent.picker = (Worker) unit;
-  }
-  // pickWalk.delayTime
-  double _snippet5(Order agent) {
-return beginPick(agent);
-  }
-  // pickWalk.onExit
-  void _snippet6(Order agent) {
-endPick(agent);
+  // pickPool.onEnter
+  void _snippet3(Order agent) {
+pending.add(agent);
+dispatch();
   }
   // pack.resourcePool
-  com.anylogic.libraries.processmodeling.ResourcePool _snippet7(Order agent) {
+  com.anylogic.libraries.processmodeling.ResourcePool _snippet4(Order agent) {
 return packerPool;
   }
   // pack.delayTime
-  double _snippet8(Order agent) {
+  double _snippet5(Order agent) {
 return wh.packTime(agent.spec);
   }
   // staging.delayTime
-  double _snippet9(Order agent) {
+  double _snippet6(Order agent) {
 return stageTime(agent);
   }
   // staging.onExit
-  void _snippet10(Order agent) {
+  void _snippet7(Order agent) {
 orderShipped(agent);
   }
+  // tourSeize.resourcePool
+  com.anylogic.libraries.processmodeling.ResourcePool _snippet8(PickTour agent) {
+return pickerPool;
+  }
+  // tourSeize.onSeizeUnit
+  void _snippet9(PickTour agent, Agent unit) {
+agent.picker = (Worker) unit;
+  }
+  // tourWalk.delayTime
+  double _snippet10(PickTour agent) {
+return beginTour(agent);
+  }
+  // tourWalk.onExit
+  void _snippet11(PickTour agent) {
+endTour(agent);
+  }
+  // tourRelease.onExit
+  void _snippet12(PickTour agent) {
+dispatch();
+  }
   // receiptArrive.delayTime
-  double _snippet11(Receipt agent) {
+  double _snippet13(Receipt agent) {
 return max(0, agent.spec.t - time());
   }
   // receiptArrive.onExit
-  void _snippet12(Receipt agent) {
+  void _snippet14(Receipt agent) {
 kpi.receiptArrived(agent.spec, time());
   }
   // receive.resourcePool
-  com.anylogic.libraries.processmodeling.ResourcePool _snippet13(Receipt agent) {
+  com.anylogic.libraries.processmodeling.ResourcePool _snippet15(Receipt agent) {
 return receiverPool;
   }
   // receive.delayTime
-  double _snippet14(Receipt agent) {
+  double _snippet16(Receipt agent) {
 return wh.receiveTime(agent.spec);
   }
   // receive.onExit
-  void _snippet15(Receipt agent) {
+  void _snippet17(Receipt agent) {
 kpi.received(agent.spec, time());
   }
   // putSeize.resourcePool
-  com.anylogic.libraries.processmodeling.ResourcePool _snippet16(Receipt agent) {
+  com.anylogic.libraries.processmodeling.ResourcePool _snippet18(Receipt agent) {
 return putawayPool;
   }
   // putSeize.onSeizeUnit
-  void _snippet17(Receipt agent, Agent unit) {
+  void _snippet19(Receipt agent, Agent unit) {
 agent.worker = (Worker) unit;
   }
   // putWalk.delayTime
-  double _snippet18(Receipt agent) {
+  double _snippet20(Receipt agent) {
 return beginPutaway(agent);
   }
   // putWalk.onExit
-  void _snippet19(Receipt agent) {
+  void _snippet21(Receipt agent) {
 endPutaway(agent);
   }
   // endOfDay.delayTime
-  double _snippet20(DayClock agent) {
+  double _snippet22(DayClock agent) {
 return max(0, wh.cfg.horizon - time());
   }
   // endOfDay.onExit
-  void _snippet21(DayClock agent) {
+  void _snippet23(DayClock agent) {
 finishRun();
   }
+  // tick.delayTime
+  double _snippet24(Ticker agent) {
+return wh.cfg.tick;
+  }
+  // tick.onExit
+  void _snippet25(Ticker agent) {
+dispatch();
+if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());
+  }
   // pickerPool.onNewUnit
-  void _snippet22(Worker unit) {
+  void _snippet26(Worker unit) {
 registerWorker(unit, 0);
   }
   // pickerPool.onSeize
-  void _snippet23(Worker unit, Agent agent) {
+  void _snippet27(Worker unit, Agent agent) {
 busy[0].add(time(), 1);
 unit.busyNow = true;
   }
   // pickerPool.onRelease
-  void _snippet24(Worker unit, Agent agent) {
+  void _snippet28(Worker unit, Agent agent) {
 busy[0].add(time(), -1);
 unit.busyNow = false;
   }
   // packerPool.onNewUnit
-  void _snippet25(Worker unit) {
+  void _snippet29(Worker unit) {
 registerWorker(unit, 1);
   }
   // packerPool.onSeize
-  void _snippet26(Worker unit, Agent agent) {
+  void _snippet30(Worker unit, Agent agent) {
 busy[1].add(time(), 1);
 unit.busyNow = true;
   }
   // packerPool.onRelease
-  void _snippet27(Worker unit, Agent agent) {
+  void _snippet31(Worker unit, Agent agent) {
 busy[1].add(time(), -1);
 unit.busyNow = false;
   }
   // receiverPool.onNewUnit
-  void _snippet28(Worker unit) {
+  void _snippet32(Worker unit) {
 registerWorker(unit, 2);
   }
   // receiverPool.onSeize
-  void _snippet29(Worker unit, Agent agent) {
+  void _snippet33(Worker unit, Agent agent) {
 busy[2].add(time(), 1);
 unit.busyNow = true;
   }
   // receiverPool.onRelease
-  void _snippet30(Worker unit, Agent agent) {
+  void _snippet34(Worker unit, Agent agent) {
 busy[2].add(time(), -1);
 unit.busyNow = false;
   }
   // putawayPool.onNewUnit
-  void _snippet31(Worker unit) {
+  void _snippet35(Worker unit) {
 registerWorker(unit, 3);
   }
   // putawayPool.onSeize
-  void _snippet32(Worker unit, Agent agent) {
+  void _snippet36(Worker unit, Agent agent) {
 busy[3].add(time(), 1);
 unit.busyNow = true;
   }
   // putawayPool.onRelease
-  void _snippet33(Worker unit, Agent agent) {
+  void _snippet37(Worker unit, Agent agent) {
 busy[3].add(time(), -1);
 unit.busyNow = false;
   }
@@ -468,52 +540,60 @@ unit.busyNow = false;
 setup();
   }
   // status.TextCode
-  Object _snippet34() {
+  Object _snippet38() {
 return statusText();
   }
   // workerDot.XCode
-  double _snippet35(int index) {
+  double _snippet39(int index) {
 return workerXY(index)[0];
   }
   // workerDot.YCode
-  double _snippet36(int index) {
+  double _snippet40(int index) {
 return workerXY(index)[1];
   }
   // workerDot.VisibleCode
-  boolean _snippet37(int index) {
+  boolean _snippet41(int index) {
 return workerVisible(index);
   }
   // workerDot.replication
-  int _snippet38() {
+  int _snippet42() {
 return 80;
   }
   // workerDot.FillColorCode
-  Color _snippet39(int index) {
+  Color _snippet43(int index) {
 return workerColor(index);
   }
   // levels.orders in system
-  double _snippet40() {
+  double _snippet44() {
 return kpi == null ? 0 : kpi.inSystem.value();
   }
   // levels.held (no stock)
-  double _snippet41() {
+  double _snippet45() {
 return kpi == null ? 0 : kpi.held.value();
   }
   // levels.in staging
-  double _snippet42() {
+  double _snippet46() {
 return kpi == null ? 0 : kpi.staging.value();
   }
   // levels.receiving buffer
-  double _snippet43() {
+  double _snippet47() {
 return kpi == null ? 0 : kpi.recvBuffer.value();
   }
   void _pvCompareLayouts(Main root) { int runs = 0;
 runs++;
-traceln("run " + runs + " of 30 done");
+traceln("run " + runs + " of 60 done");
  Object t = "runs done: " + runs; }
-  void _pvStaffPackers(Main root) { int runs = 0;
+  void _pvValidateRealDays(Main root) { int runs = 0;
 runs++;
-traceln("run " + runs + " of 20 done");
+traceln("run " + runs + " of 10 done");
+ Object t = "runs done: " + runs; }
+  void _pvStaffPickers(Main root) { int runs = 0;
+runs++;
+traceln("run " + runs + " of 70 done");
+ Object t = "runs done: " + runs; }
+  void _pvCartSize(Main root) { int runs = 0;
+runs++;
+traceln("run " + runs + " of 40 done");
  Object t = "runs done: " + runs; }
 // ===== Json (from java/src/wh/Json.java) =====
 /** Minimal JSON reader: objects -> LinkedHashMap, arrays -> ArrayList, numbers -> Double. */
@@ -828,11 +908,16 @@ public static final class Dist {
 }
 
 // ===== RunConfig (from java/src/wh/RunConfig.java) =====
-/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, service times. */
+/** data/config/run_config.json (schema whsim.run/1): horizon, cut-offs, resources, speeds, batching, service times. */
 public static final class RunConfig {
   public double horizon, promiseLead, walkSpeed, putawaySpeed;
   public double[] cutoffs;
   public int pickers, packers, receivers, putaway, recvPerCell;
+  /** Batch picking: a cart holds cartUnits units (0 = single-order picking), at most maxOrders orders (0 = no limit). */
+  public int cartUnits, maxOrders;
+  /** Wave release: a cart leaves when the waiting units fill it or the oldest waiting order has waited maxWait s;
+   *  the rule is re-checked every tick s. */
+  public double maxWait, tick;
   public Dist pickPerLine, packPerOrder, packPerUnit, receivePerLine, putawayHandling;
 
   public static RunConfig load(String path) { return parse(Json.read(path)); }
@@ -855,6 +940,11 @@ public static final class RunConfig {
     c.walkSpeed = Json.num(Json.get(m, "walk_speed_mps"), "walk_speed_mps");
     c.putawaySpeed = Json.num(Json.get(m, "putaway_speed_mps"), "putaway_speed_mps");
     c.recvPerCell = Json.integer(Json.get(m, "recv_buffer_per_cell"), "recv_buffer_per_cell");
+    Map<String, Object> b = Json.obj(Json.get(m, "batching"), "batching");
+    c.cartUnits = Json.integer(Json.get(b, "cart_units"), "batching.cart_units");
+    c.maxOrders = Json.integer(Json.get(b, "max_orders"), "batching.max_orders");
+    c.maxWait = Json.num(Json.get(b, "max_wait_s"), "batching.max_wait_s");
+    c.tick = Json.num(Json.get(b, "tick_s"), "batching.tick_s");
     Map<String, Object> t = Json.obj(Json.get(m, "times"), "times");
     c.pickPerLine = Dist.of(Json.get(t, "pick_per_line_s"), "times.pick_per_line_s");
     c.packPerOrder = Dist.of(Json.get(t, "pack_per_order_s"), "times.pack_per_order_s");
@@ -878,6 +968,8 @@ public static final class RunConfig {
       throw new IllegalArgumentException("every resource count must be >= 1");
     if (!(walkSpeed > 0 && putawaySpeed > 0)) throw new IllegalArgumentException("speeds must be > 0");
     if (recvPerCell < 1) throw new IllegalArgumentException("recv_buffer_per_cell must be >= 1");
+    if (cartUnits < 0 || maxOrders < 0) throw new IllegalArgumentException("batching.cart_units and max_orders must be >= 0");
+    if (maxWait < 0 || !(tick > 0)) throw new IllegalArgumentException("batching.max_wait_s must be >= 0 and tick_s > 0");
   }
 
   /** First cut-off at or after t, or +infinity if none is left today. */
@@ -900,7 +992,7 @@ public static final class LayoutData {
   }
 
   public String id, slotting;
-  public double cellM;
+  public double cellW, cellH, originX, originY;   // metres; cell (r, c) centre = origin + ((c + .5) cellW, (r + .5) cellH)
   public int rows, cols;
   public String[][] grid;
   // aisle graph
@@ -928,7 +1020,11 @@ public static final class LayoutData {
     LayoutData L = new LayoutData();
     L.id = Json.str(Json.get(m, "id"), "id");
     L.slotting = Json.str(Json.get(m, "slotting"), "slotting");
-    L.cellM = Json.num(Json.get(m, "cell_m"), "cell_m");
+    L.cellW = Json.num(Json.get(m, "cell_w"), "cell_w");
+    L.cellH = Json.num(Json.get(m, "cell_h"), "cell_h");
+    List<Object> org = Json.arr(Json.get(m, "origin"), "origin");
+    L.originX = Json.num(org.get(0), "origin x");
+    L.originY = Json.num(org.get(1), "origin y");
     L.rows = Json.integer(Json.get(m, "rows"), "rows");
     L.cols = Json.integer(Json.get(m, "cols"), "cols");
     List<Object> g = Json.arr(Json.get(m, "grid"), "grid");
@@ -1026,8 +1122,8 @@ public static final class LayoutData {
     return s == null ? -1 : slotNode[s];
   }
 
-  public double widthM() { return cols * cellM; }
-  public double heightM() { return rows * cellM; }
+  public double widthM() { return cols * cellW; }
+  public double heightM() { return rows * cellH; }
 }
 
 // ===== PathGraph (from java/src/wh/PathGraph.java) =====
@@ -1120,7 +1216,9 @@ public static final class Router {
     Tour t = new Tour();
     t.stops = order;
     t.station = st;
-    t.length = len + d[stations[st]] + g.dist(stations[st], home);
+    len += d[stations[st]];                         // two separate additions, as in python pick_tour
+    len += g.dist(stations[st], home);
+    t.length = len;
     return t;
   }
 
@@ -1452,34 +1550,121 @@ public static final class Warehouse {
 
   // ------------------------------------------------------------------ picking
   public static final class PickPlan {
-    public double duration, length;
-    public int station, stops;
+    public double duration, length;   // seconds; metres walked (all trips)
+    public int station, stops, trips, orders, units;
     public Router.Motion motion;
   }
 
-  /** Single-order picking tour starting at the depot at time t0: walk + one pick time per order line. */
-  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
-    Random r = rng(S_PICK, o.index);
-    Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
-    int[] nodes = new int[o.skus.length];
-    for (int i = 0; i < o.skus.length; i++) {
-      nodes[i] = layout.nodeOfSku(o.skus[i]);
-      dwell.merge(nodes[i], cfg.pickPerLine.sample(r), Double::sum);   // lines sampled in order-line order
+  /**
+   * Batch (wave) formation, greedy first-fit in release order: the oldest waiting order always goes on the
+   * cart; every later order that still fits (cart_units, max_orders) is added. With cart_units = 0 every
+   * batch is one order (single-order picking). Returns positions in the waiting list, ascending.
+   */
+  public int[] formBatch(List<ScenarioData.OrderSpec> waiting) {
+    if (waiting.isEmpty()) return new int[0];
+    List<Integer> pos = new ArrayList<Integer>();
+    pos.add(0);
+    int units = waiting.get(0).units();
+    for (int i = 1; i < waiting.size() && cfg.cartUnits > 0; i++) {
+      if (cfg.maxOrders > 0 && pos.size() >= cfg.maxOrders) break;
+      int u = waiting.get(i).units();
+      if (units + u <= cfg.cartUnits) { pos.add(i); units += u; }
     }
-    Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
-    int k = tour.stops.length;
-    int[] targets = new int[k + 2];
-    double[] dw = new double[k + 2];
-    for (int i = 0; i < k; i++) { targets[i] = tour.stops[i]; dw[i] = dwell.get(tour.stops[i]); }
-    targets[k] = layout.stations[tour.station];
-    targets[k + 1] = layout.home;
+    int[] out = new int[pos.size()];
+    for (int i = 0; i < out.length; i++) out[i] = pos.get(i);
+    return out;
+  }
+
+  /**
+   * The picking tour(s) of a batch, starting at the depot at t0. A batch that fits the cart is ONE trip:
+   * nearest-neighbour route over all its distinct slots, then the nearest packing station, then back to the
+   * depot. A batch larger than the cart (only possible for a single order bigger than cart_units) is split
+   * like the real WMS splits such orders over several waves: its lines are cut, in line order, into chunks of
+   * at most cart_units units (one trip each), and a line bigger than the cart takes ceil(qty / cart_units)
+   * trips to its slot. Pick time: one draw per order line from that ORDER's own stream, spent on the trip that
+   * picks the line (so an order's pick times do not depend on its batch).
+   */
+  public PickPlan planBatch(List<ScenarioData.OrderSpec> batch, double t0) {
+    List<List<int[]>> trips = new ArrayList<List<int[]>>();      // per trip: {node, line number}
+    List<Double> lineDwell = new ArrayList<Double>();
+    int units = 0;
+    for (ScenarioData.OrderSpec o : batch) units += o.units();
+    boolean split = cfg.cartUnits > 0 && units > cfg.cartUnits;
+    List<int[]> cur = new ArrayList<int[]>();
+    int curUnits = 0;
+    for (ScenarioData.OrderSpec o : batch) {
+      Random r = rng(S_PICK, o.index);
+      for (int i = 0; i < o.skus.length; i++) {
+        int v = layout.nodeOfSku(o.skus[i]);
+        int line = lineDwell.size();
+        lineDwell.add(cfg.pickPerLine.sample(r));
+        int q = o.qty[i];
+        if (!split) { cur.add(new int[]{v, line}); continue; }
+        if (q > cfg.cartUnits) {                                 // its own trips: picks on the first one
+          if (!cur.isEmpty()) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+          int n = (q + cfg.cartUnits - 1) / cfg.cartUnits;
+          for (int k = 0; k < n; k++) {
+            List<int[]> t = new ArrayList<int[]>();
+            t.add(new int[]{v, k == 0 ? line : -1});
+            trips.add(t);
+          }
+          continue;
+        }
+        if (curUnits + q > cfg.cartUnits) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+        cur.add(new int[]{v, line});
+        curUnits += q;
+      }
+    }
+    if (!cur.isEmpty()) trips.add(cur);
+    List<Integer> targets = new ArrayList<Integer>();
+    List<Double> dwells = new ArrayList<Double>();
     PickPlan p = new PickPlan();
-    p.motion = Router.walk(graph, layout, layout.home, targets, dw, cfg.walkSpeed, t0);
+    p.station = -1;
+    for (List<int[]> trip : trips) {
+      Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
+      int[] nodes = new int[trip.size()];
+      for (int i = 0; i < nodes.length; i++) {
+        nodes[i] = trip.get(i)[0];
+        dwell.merge(nodes[i], trip.get(i)[1] >= 0 ? lineDwell.get(trip.get(i)[1]) : 0.0, Double::sum);
+      }
+      Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
+      for (int v : tour.stops) { targets.add(v); dwells.add(dwell.get(v)); }
+      targets.add(layout.stations[tour.station]);
+      dwells.add(0.0);
+      targets.add(layout.home);
+      dwells.add(0.0);
+      p.length += tour.length;
+      p.stops += tour.stops.length;
+      if (p.station < 0) p.station = tour.station;
+    }
+    int[] tg = new int[targets.size()];
+    double[] dw = new double[targets.size()];
+    for (int i = 0; i < tg.length; i++) { tg[i] = targets.get(i); dw[i] = dwells.get(i); }
+    p.motion = Router.walk(graph, layout, layout.home, tg, dw, cfg.walkSpeed, t0);
     p.duration = p.motion.end() - t0;
-    p.length = tour.length;
-    p.station = tour.station;
-    p.stops = k;
+    p.trips = trips.size();
+    p.orders = batch.size();
+    p.units = units;
     return p;
+  }
+
+  /**
+   * Wave release rule: release a cart now if picking is single-order, or the waiting orders fill a cart,
+   * or the oldest one was released at least max_wait_s ago. releasedAt = release time of waiting.get(0).
+   */
+  public boolean releaseNow(List<ScenarioData.OrderSpec> waiting, double oldestReleasedAt, double now) {
+    if (waiting.isEmpty()) return false;
+    if (cfg.cartUnits == 0 || now - oldestReleasedAt >= cfg.maxWait) return true;
+    int units = 0;
+    for (ScenarioData.OrderSpec o : waiting) units += o.units();
+    return units >= cfg.cartUnits || (cfg.maxOrders > 0 && waiting.size() >= cfg.maxOrders);
+  }
+
+  /** Single-order tour (a batch of one). */
+  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
+    List<ScenarioData.OrderSpec> one = new ArrayList<ScenarioData.OrderSpec>();
+    one.add(o);
+    return planBatch(one, t0);
   }
 
   public double packTime(ScenarioData.OrderSpec o) {
@@ -1541,6 +1726,9 @@ public static final class Kpi {
   public final Stats.TimeLevel held = new Stats.TimeLevel(), recvBuffer = new Stats.TimeLevel(), staging = new Stats.TimeLevel(),
       inSystem = new Stats.TimeLevel();
   public int recvOverflows;
+  // picking tours (batches)
+  public int tours, tourOrders, tourUnits, tourTrips;
+  public double tourM, tourTime;
 
   public Kpi(Warehouse w) {
     this.w = w;
@@ -1569,9 +1757,19 @@ public static final class Kpi {
   public void pickStarted(ScenarioData.OrderSpec o, double t) { oPickStart[o.index] = t; }
   public void pickEnded(ScenarioData.OrderSpec o, double t, Warehouse.PickPlan p) {
     oPickEnd[o.index] = t;
-    oPickM[o.index] = p.length;
+    oPickM[o.index] = p.length / p.orders;      // the order's share of its tour
     oStation[o.index] = p.station;
   }
+  /** Once per picking tour, when it ends. */
+  public void tourEnded(Warehouse.PickPlan p) {
+    tours++;
+    tourOrders += p.orders;
+    tourUnits += p.units;
+    tourTrips += p.trips;
+    tourM += p.length;
+    tourTime += p.duration;
+  }
+
   public void orderPacked(ScenarioData.OrderSpec o, double t) { oPacked[o.index] = t; staging.add(t, 1); }
   public void orderShipped(ScenarioData.OrderSpec o, double t) {
     oShip[o.index] = t;
@@ -1630,6 +1828,12 @@ public static final class Kpi {
     s.put("on_time_pct", dueToday > 0 ? 100.0 * onTime / dueToday : Double.NaN);
     s.put("held_orders", heldN); s.put("hold_mean_s", Stats.mean(hold));
     s.put("pick_m_per_order", Stats.mean(pickM)); s.put("pick_m_total", pickTotal);
+    s.put("tours", tours);
+    s.put("orders_per_tour", tours > 0 ? (double) tourOrders / tours : Double.NaN);
+    s.put("units_per_tour", tours > 0 ? (double) tourUnits / tours : Double.NaN);
+    s.put("tour_m_mean", tours > 0 ? tourM / tours : Double.NaN);
+    s.put("tour_s_mean", tours > 0 ? tourTime / tours : Double.NaN);
+    s.put("cart_units", w.cfg.cartUnits);
     s.put("receipt_lines", lines); s.put("receipt_lines_put", put); s.put("put_m_total", putM);
     s.put("recv_buffer_cap", w.recvBufferCapacity());
     s.put("recv_buffer_max", recvBuffer.max()); s.put("recv_buffer_mean", recvBuffer.mean(T));

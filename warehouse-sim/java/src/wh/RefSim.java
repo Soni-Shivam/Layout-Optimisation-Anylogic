@@ -12,7 +12,7 @@ import java.util.PriorityQueue;
  * classes (FIFO queues, first free resource). Used to test the whole pipeline without AnyLogic and to
  * give expected KPIs to compare an AnyLogic run against. Not part of the AnyLogic model.
  *
- *   order:   arrive -> reserve stock (else hold) -> picker queue -> pick tour -> packer queue -> pack
+ *   order:   arrive -> reserve stock (else hold) -> waiting for a cart -> batch tour (picker) -> packer queue -> pack
  *            -> staging until the next cut-off -> shipped
  *   receipt: arrive -> receiver queue -> receive -> putaway queue -> putaway trip -> stock + retry held
  *
@@ -28,7 +28,8 @@ public final class RefSim {
   // resources: free units and FIFO queues
   private final int[] free = new int[4], busy = new int[4];
   private final double[] busyArea = new double[4], busyLast = new double[4];
-  private final ArrayDeque<Integer> pickQ = new ArrayDeque<Integer>(), packQ = new ArrayDeque<Integer>(),
+  private final List<ScenarioData.OrderSpec> waiting = new ArrayList<ScenarioData.OrderSpec>();   // released, not on a cart yet
+  private final ArrayDeque<Integer> packQ = new ArrayDeque<Integer>(),
       recvQ = new ArrayDeque<Integer>(), putQ = new ArrayDeque<Integer>();
   private final List<Integer> held = new ArrayList<Integer>();
   public final int[] staff;
@@ -52,6 +53,7 @@ public final class RefSim {
   public Map<String, Object> run(String scenarioName) {
     for (ScenarioData.OrderSpec o : w.scenario.orders) at(o.t, () -> arrive(o));
     for (ScenarioData.ReceiptSpec r : w.scenario.receipts) at(r.t, () -> receiptArrives(r));
+    at(w.cfg.tick, this::tick);
     double T = w.cfg.horizon;
     while (!events.isEmpty() && events.peek()[0] <= T) {
       double[] e = events.poll();
@@ -69,21 +71,27 @@ public final class RefSim {
   // ---- outbound
   private void arrive(ScenarioData.OrderSpec o) {
     kpi.orderArrived(o, now);
-    if (w.inv.tryReserve(o)) { kpi.orderReleased(o, now); pickQ.add(o.index); tryPick(); }
+    if (w.inv.tryReserve(o)) { kpi.orderReleased(o, now); waiting.add(o); tryPick(); }
     else { kpi.orderHeld(o, now); held.add(o.index); }
   }
 
+  /** A free picker takes the next batch (Warehouse.formBatch) once the wave release rule allows it. */
   private void tryPick() {
-    while (free[0] > 0 && !pickQ.isEmpty()) {
-      ScenarioData.OrderSpec o = w.scenario.orders.get(pickQ.poll());
+    while (free[0] > 0 && w.releaseNow(waiting, waiting.isEmpty() ? now : kpi.oRel[waiting.get(0).index], now)) {
+      int[] pos = w.formBatch(waiting);
+      List<ScenarioData.OrderSpec> batch = new ArrayList<ScenarioData.OrderSpec>();
+      for (int i = pos.length - 1; i >= 0; i--) batch.add(0, waiting.remove(pos[i]));
       seize(0);
-      kpi.pickStarted(o, now);
-      Warehouse.PickPlan p = w.planPick(o, now);
+      for (ScenarioData.OrderSpec o : batch) kpi.pickStarted(o, now);
+      Warehouse.PickPlan p = w.planBatch(batch, now);
       at(now + p.duration, () -> {
-        w.inv.consume(o);
-        kpi.pickEnded(o, now, p);
+        for (ScenarioData.OrderSpec o : batch) {
+          w.inv.consume(o);
+          kpi.pickEnded(o, now, p);
+        }
+        kpi.tourEnded(p);
         release(0);
-        packQ.add(o.index);
+        for (ScenarioData.OrderSpec o : batch) packQ.add(o.index);
         tryPack();
         tryPick();
       });
@@ -142,14 +150,25 @@ public final class RefSim {
     }
   }
 
-  /** Release every held order (oldest first) whose lines are now all in stock. */
+  /** Release every held order (oldest first) whose lines are now all in stock: first decide, then release
+   *  them one by one (each may start a cart), exactly as the AnyLogic model does. */
   private void retryHeld() {
-    boolean any = false;
+    List<ScenarioData.OrderSpec> go = new ArrayList<ScenarioData.OrderSpec>();
     for (Iterator<Integer> it = held.iterator(); it.hasNext(); ) {
       ScenarioData.OrderSpec o = w.scenario.orders.get(it.next());
-      if (w.inv.tryReserve(o)) { it.remove(); kpi.orderReleased(o, now); pickQ.add(o.index); any = true; }
+      if (w.inv.tryReserve(o)) { it.remove(); go.add(o); }
     }
-    if (any) tryPick();
+    for (ScenarioData.OrderSpec o : go) {
+      kpi.orderReleased(o, now);
+      waiting.add(o);
+      tryPick();
+    }
+  }
+
+  /** Periodic re-check of the wave release rule (orders waiting for max_wait_s). */
+  private void tick() {
+    tryPick();
+    if (now + w.cfg.tick <= w.cfg.horizon) at(now + w.cfg.tick, this::tick);
   }
 
   public static void main(String[] a) {

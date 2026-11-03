@@ -5,8 +5,8 @@
 Per group: mean and 95% t confidence half-width over the seeds. With a baseline group, also the
 paired difference (same seed = same day file and same service-time streams) and its 95% CI.
 runs.csv collects every experiment, so filter to one of them with --where, e.g.
-    CompareLayouts:  --by layout --where packers=3
-    StaffPackers:    --by packers --where layout=I_v_c0_central_abc
+    CompareLayouts:  --by layout --where pickers=7 --where cart_units=24
+    StaffPickers:    --by pickers --where layout=D40.3_63.1-P3-Xnone-asis
 Each (group, seed) must then hold exactly one configuration; otherwise the script stops and says why.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from collections import defaultdict
 
 from scipy import stats as st
 
-KPIS = ["fulfil_mean_s", "fulfil_p95_s", "on_time_pct", "pick_m_per_order", "put_m_total", "held_orders",
+KPIS = ["fulfil_mean_s", "fulfil_p95_s", "on_time_pct", "pick_m_per_order", "tour_m_mean", "orders_per_tour", "held_orders",
         "util_pick", "util_pack", "recv_buffer_max", "backlog_end"]
 
 
@@ -56,7 +56,7 @@ def main(argv=None):
     if not rows:
         raise SystemExit("no rows left after the --where filters")
     # identical configuration + seed: the last row wins (a re-run); different configurations must not mix
-    config = ("layout", "scenario", "pickers", "packers", "receivers", "putaway")
+    config = ("layout", "scenario", "pickers", "packers", "receivers", "putaway", "cart_units")
     last = {}
     for r in rows:
         last[tuple(r[k] for k in config) + (r["seed"],)] = r

@@ -1,9 +1,13 @@
 """Writes every input file the AnyLogic model reads into model/WarehouseSim/data/.
 
-    python3 -m whsim.cli all            # skus + scenarios + layouts + run config
-    python3 -m whsim.cli layouts        # only the layout candidates (uses data/skus.csv)
-    python3 -m whsim.cli scenarios      # only skus.csv and the day files (placeholder generator)
+    python3 -m whsim.cli all            # run config + workload (fitted input models) + layouts
+    python3 -m whsim.cli config         # data/config/run_config.json
+    python3 -m whsim.cli scenarios      # skus.csv + day files from the fitted input models (whsim.input_models)
+    python3 -m whsim.cli layouts        # one layout JSON per design in data/config/designs.json (+ index.txt)
     python3 -m whsim.cli check FILE     # validate a hand-drawn grid file (one row of tokens per line)
+
+Layouts are DESIGNS in coordinates (see whsim.design): depot position, extra cross aisles, packing
+stations and slotting policy on the real footwear warehouse. Their file names are made from those values.
 """
 from __future__ import annotations
 
@@ -12,22 +16,27 @@ import json
 import pathlib
 import sys
 
-from . import scenario, templates
-from .layout import Grid, LayoutError, compile_layout, graph_of, pick_tour, save, validate
+from . import design, scenario
+from .layout import Grid, LayoutError, save, validate
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATA = ROOT / "model" / "WarehouseSim" / "data"
+DESIGNS = DATA / "config" / "designs.json"
 
+# Model time 0 = 06:00. Real orders are created 06:00-20:30 (data); carrier cut-offs are ASSUMED.
 RUN_CONFIG = {
     "schema": "whsim.run/1",
-    "horizon_s": 57900,                          # end of the day; KPIs are written then
-    "cutoffs_s": [14400, 28800, 43200, 57600],   # carrier departures (4 h, 8 h, 12 h, 16 h)
-    "promise_lead_s": 1800,                      # an order is due at the first cut-off >= arrival + lead
-    "resources": {"pickers": 6, "packers": 3, "receivers": 2, "putaway": 2},
-    "walk_speed_mps": 1.0,                       # picker with cart
+    "horizon_s": 54000,                          # 21:00, end of the day; KPIs are written then
+    "cutoffs_s": [25200, 43200, 52200],          # carrier departures 13:00, 18:00, 20:30 (assumed)
+    "promise_lead_s": 3600,                      # an order is due at the first cut-off >= arrival + 1 h
+    "resources": {"pickers": 7, "packers": 2, "receivers": 2, "putaway": 2},   # data: 6.6 operators active per day
+    "walk_speed_mps": 1.0,                       # picker pushing a cart (assumed)
     "putaway_speed_mps": 1.2,
     "recv_buffer_per_cell": 25,                  # receipt lines one receiving cell holds
-    "times": {                                   # replace with the fitted input models
+    "batching": {                                # real waves: ~4 orders, ~24 units per cart (data)
+        "cart_units": 24, "max_orders": 0, "max_wait_s": 900, "tick_s": 10,
+    },
+    "times": {                                   # no timestamps in the data: ASSUMED, varied in the what-ifs
         "pick_per_line_s": {"dist": "lognormal", "mean": 12.0, "sd": 5.0},
         "pack_per_order_s": {"dist": "triangular", "min": 40.0, "mode": 60.0, "max": 120.0},
         "pack_per_unit_s": {"dist": "const", "value": 4.0},
@@ -36,55 +45,50 @@ RUN_CONFIG = {
     },
 }
 
-
-def write_scenarios(n_days=5, n_skus=400):
-    (DATA / "scenarios").mkdir(parents=True, exist_ok=True)
-    skus = scenario.make_skus(n_skus)
-    scenario.write_skus(skus, DATA / "skus.csv")
-    for seed in range(1, n_days + 1):
-        rows = scenario.make_day(skus, seed)
-        scenario.write_day(rows, DATA / "scenarios" / f"day_{seed}.csv")
-        n_o = len({r[2] for r in rows if r[1] == "ORDER"})
-        n_t = len({r[2] for r in rows if r[1] == "RECEIPT"})
-        print(f"day_{seed}.csv: {n_o} orders, {sum(r[1] == 'ORDER' for r in rows)} order lines, "
-              f"{n_t} trucks, {sum(r[1] == 'RECEIPT' for r in rows)} receipt lines")
+# designs written when designs.json does not exist yet: the as-is warehouse with each storage policy
+DEFAULT_DESIGNS = [{**design.BASELINE, "slotting": s} for s in design.SLOTTING_POLICIES]
 
 
-def write_layouts(candidates=templates.CANDIDATES):
+def write_scenarios():
+    from . import input_models          # fitted on the real data (data_raw/mendeley)
+    input_models.main()
+    write_real_index()
+
+
+def write_real_index():
+    """data/scenarios/real_index.txt: the replayed historical days, for the AnyLogic parameter realDay."""
+    days = sorted(p.name for p in (DATA / "scenarios").glob("real_*.csv"))
+    (DATA / "scenarios" / "real_index.txt").write_text("\n".join(days) + "\n")
+    return days
+
+
+def read_designs():
+    if DESIGNS.exists():
+        return json.loads(DESIGNS.read_text())["designs"]
+    return DEFAULT_DESIGNS
+
+
+def write_designs(designs, note=""):
+    DESIGNS.parent.mkdir(parents=True, exist_ok=True)
+    DESIGNS.write_text(json.dumps({"note": note, "designs": designs}, indent=2) + "\n")
+
+
+def write_layouts(designs=None):
     out = DATA / "layouts"
     out.mkdir(parents=True, exist_ok=True)
+    for old in out.glob("*.json"):
+        old.unlink()
     skus = [(s, w) for s, w, _ in scenario.read_skus(DATA / "skus.csv")]
     names = []
-    for lid, p in candidates.items():
-        p = dict(p)
-        slotting = p.pop("slotting")
-        g = templates.parallel_aisle(**p)
-        lay = compile_layout(g, skus, slotting=slotting, layout_id=lid, template="parallel_aisle",
-                             params={**p, "slotting": slotting})
-        save(lay, out / f"{lid}.json")
-        names.append(f"{lid}.json")
+    for d in designs or read_designs():
+        lay = design.apply_design(d, skus)
+        save(lay, out / f"{lay['id']}.json")
+        names.append(f"{lay['id']}.json")
         st = lay["stats"]
-        print(f"{lid:28s} nodes {st['n_nodes']:4d}  slots {st['n_slots']:4d}  "
-              f"mean depot->slot {st['mean_depot_to_used_slot_m']:6.1f} m  "
-              f"static pick m/order {static_pick_m(lay):6.1f}")
+        print(f"{lay['id']:40s} nodes {st['n_nodes']:5d}  slots {st['n_slots']:5d}  "
+              f"mean depot->slot {st['mean_depot_to_used_slot_m']:6.1f} m")
     (out / "index.txt").write_text("\n".join(names) + "\n")
-
-
-def static_pick_m(layout, day=DATA / "scenarios" / "day_1.csv"):
-    """Mean tour length per order on one day's orders (no simulation): the screening score."""
-    g = graph_of(layout)
-    node_of_sku = {}
-    for s in layout["slots"]:
-        if s["sku"] and s["sku"] not in node_of_sku:
-            node_of_sku[s["sku"]] = s["node"]
-    home = next(f["node"] for f in layout["facilities"] if f["type"] == "H")
-    stations = [f["node"] for f in layout["facilities"] if f["type"] == "PK"]
-    orders = {}
-    for t, typ, oid, sku, q in scenario.read_day(day):
-        if typ == "ORDER":
-            orders.setdefault(oid, []).append(node_of_sku[sku])
-    tot = sum(pick_tour(g, home, stops, stations)[2] for stops in orders.values())
-    return tot / max(1, len(orders))
+    return names
 
 
 def write_run_config():
@@ -96,22 +100,22 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["all", "layouts", "scenarios", "config", "check"])
     ap.add_argument("file", nargs="?")
-    ap.add_argument("--days", type=int, default=5)
-    ap.add_argument("--skus", type=int, default=400)
-    ap.add_argument("--cell-m", type=float, default=1.5, help="check: cell size in metres")
+    ap.add_argument("--cell-w", type=float, default=1.5, help="check: cell width in metres")
+    ap.add_argument("--cell-h", type=float, default=None, help="check: cell height in metres (default = width)")
     ap.add_argument("--levels", type=int, default=2, help="check: pick slots per shelf bay")
     a = ap.parse_args(argv)
-    if a.cmd in ("all", "scenarios"):
-        write_scenarios(a.days, a.skus)
     if a.cmd in ("all", "config"):
         write_run_config()
+    if a.cmd in ("all", "scenarios"):
+        write_scenarios()
     if a.cmd in ("all", "layouts"):
         write_layouts()
+        write_real_index()
     if a.cmd == "check":
         rows = [ln for ln in pathlib.Path(a.file).read_text().splitlines() if ln.strip()]
         sku_file = DATA / "skus.csv"
         n_skus = len(scenario.read_skus(sku_file)) if sku_file.exists() else None
-        errs = validate(Grid.parse(rows, a.cell_m, a.levels), n_skus)
+        errs = validate(Grid.parse(rows, a.cell_w, a.levels, a.cell_h), n_skus)
         if n_skus is None:
             print(f"(no {sku_file}: slot count not checked against the SKUs)")
         print("\n".join(errs) if errs else "OK")

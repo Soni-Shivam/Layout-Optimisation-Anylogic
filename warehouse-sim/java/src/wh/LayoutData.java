@@ -14,7 +14,7 @@ public final class LayoutData {
   }
 
   public String id, slotting;
-  public double cellM;
+  public double cellW, cellH, originX, originY;   // metres; cell (r, c) centre = origin + ((c + .5) cellW, (r + .5) cellH)
   public int rows, cols;
   public String[][] grid;
   // aisle graph
@@ -42,7 +42,11 @@ public final class LayoutData {
     LayoutData L = new LayoutData();
     L.id = Json.str(Json.get(m, "id"), "id");
     L.slotting = Json.str(Json.get(m, "slotting"), "slotting");
-    L.cellM = Json.num(Json.get(m, "cell_m"), "cell_m");
+    L.cellW = Json.num(Json.get(m, "cell_w"), "cell_w");
+    L.cellH = Json.num(Json.get(m, "cell_h"), "cell_h");
+    List<Object> org = Json.arr(Json.get(m, "origin"), "origin");
+    L.originX = Json.num(org.get(0), "origin x");
+    L.originY = Json.num(org.get(1), "origin y");
     L.rows = Json.integer(Json.get(m, "rows"), "rows");
     L.cols = Json.integer(Json.get(m, "cols"), "cols");
     List<Object> g = Json.arr(Json.get(m, "grid"), "grid");
@@ -140,6 +144,6 @@ public final class LayoutData {
     return s == null ? -1 : slotNode[s];
   }
 
-  public double widthM() { return cols * cellM; }
-  public double heightM() { return rows * cellM; }
+  public double widthM() { return cols * cellW; }
+  public double heightM() { return rows * cellH; }
 }

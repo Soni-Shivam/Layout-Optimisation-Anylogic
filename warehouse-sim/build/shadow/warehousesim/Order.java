@@ -61,9 +61,7 @@ import com.anylogic.libraries.processmodeling.*;
 @SuppressWarnings("all")
 public class Order extends Agent {
   public Main.ScenarioData.OrderSpec spec = null;
-  public Main.Warehouse.PickPlan pick = null;
   public boolean reserved = false;
-  public Worker picker = null;
   public boolean admitted = false;
   public Order() {}
   public Order(Main.ScenarioData.OrderSpec spec) { this.spec = spec; }

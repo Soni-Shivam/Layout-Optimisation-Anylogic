@@ -40,7 +40,9 @@ public final class Router {
     Tour t = new Tour();
     t.stops = order;
     t.station = st;
-    t.length = len + d[stations[st]] + g.dist(stations[st], home);
+    len += d[stations[st]];                         // two separate additions, as in python pick_tour
+    len += g.dist(stations[st], home);
+    t.length = len;
     return t;
   }
 

@@ -59,16 +59,21 @@ def build():
     receipt = m.agent("Receipt")
     worker = m.agent("Worker")
     clock = m.agent("DayClock")
+    tour = m.agent("PickTour")
+    ticker = m.agent("Ticker")
 
     # ------------------------------------------------------------------ agent types
     # spec is a parameter, passed through the constructor (new Order(s)): Enter.take() creates the agent and
     # re-assigns plain-variable initial values, so a plain variable set before take() would be reset to null
     order.parameter("spec", "Main.ScenarioData.OrderSpec", "null", 20, 20)
     order.shadow.method("Order", "  public Order() {}\n  public Order(Main.ScenarioData.OrderSpec spec) { this.spec = spec; }")
-    order.plain_var("pick", "Main.Warehouse.PickPlan", "null", 20, 40)
     order.plain_var("reserved", "boolean", "false", 20, 60)
-    order.plain_var("picker", "Worker", "null", 20, 80)
     order.plain_var("admitted", "boolean", "false", 20, 100)
+    # one picking tour (cart) = a batch of orders, passed through the constructor like spec
+    tour.parameter("orders", "ArrayList<Order>", "null", 20, 20)
+    tour.shadow.method("PickTour", "  public PickTour() {}\n  public PickTour(ArrayList<Order> orders) { this.orders = orders; }")
+    tour.plain_var("plan", "Main.Warehouse.PickPlan", "null", 20, 40)
+    tour.plain_var("picker", "Worker", "null", 20, 60)
     receipt.parameter("spec", "Main.ScenarioData.ReceiptSpec", "null", 20, 20)
     receipt.shadow.method("Receipt", "  public Receipt() {}\n  public Receipt(Main.ScenarioData.ReceiptSpec spec) { this.spec = spec; }")
     receipt.plain_var("put", "Main.Warehouse.PutPlan", "null", 20, 40)
@@ -82,9 +87,10 @@ def build():
     P = {}
     y = iter(range(20, 1000, 22))
     for name, jt, default in [
-        ("layoutFile", "String", '"data/layouts/I_v_c0_central_abc.json"'),
+        ("layoutFile", "String", '"data/layouts/D40.3_63.1-P3-Xnone-asis.json"'),
         ("layoutIndex", "int", "-1"),
         ("scenarioFile", "String", '"data/scenarios/day_{seed}.csv"'),
+        ("realDay", "int", "0"),
         ("skuFile", "String", '"data/skus.csv"'),
         ("configFile", "String", '"data/config/run_config.json"'),
         ("seed", "int", "1"),
@@ -92,6 +98,7 @@ def build():
         ("nPackers", "int", "-1"),
         ("nReceivers", "int", "-1"),
         ("nPutaway", "int", "-1"),
+        ("cartUnits", "int", "-1"),
         ("writeOrders", "boolean", "true"),
         ("resultsDir", "String", '"results"'),
     ]:
@@ -114,6 +121,8 @@ def build():
         ("nPicked", "int", "0"),
         ("nPacked", "int", "0"),
         ("nShipped", "int", "0"),
+        ("nTours", "int", "0"),
+        ("pending", "ArrayList<Order>", "new ArrayList<Order>()"),
         ("done", "boolean", "false"),
     ]:
         main.plain_var(name, jt, init, 1650, next(vy))
@@ -141,6 +150,19 @@ if (layoutIndex >= 0) {
 	layoutPath = "data/layouts/" + names.get(layoutIndex);
 }
 scenarioPath = scenarioFile.replace("{seed}", String.valueOf(seed));
+// realDay k >= 1: replay the k-th historical day listed in data/scenarios/real_index.txt instead
+if (realDay > 0) {
+	List<String> days = new ArrayList<String>();
+	try {
+		for (String s : java.nio.file.Files.readAllLines(java.nio.file.Paths.get("data/scenarios/real_index.txt")))
+			if (!s.trim().isEmpty()) days.add(s.trim());
+	} catch (java.io.IOException e) {
+		throw new IllegalArgumentException("cannot read data/scenarios/real_index.txt: " + e.getMessage());
+	}
+	if (realDay > days.size())
+		throw new IllegalArgumentException("realDay = " + realDay + " but real_index.txt lists " + days.size() + " days");
+	scenarioPath = "data/scenarios/" + days.get(realDay - 1);
+}
 // 2. load every input file and check them against each other (clear error message if anything is wrong)
 wh = Warehouse.load(layoutPath, configFile, scenarioPath, skuFile, seed);
 kpi = new Kpi(wh);
@@ -153,6 +175,7 @@ pickerPool.set_capacity(staff[0]);
 packerPool.set_capacity(staff[1]);
 receiverPool.set_capacity(staff[2]);
 putawayPool.set_capacity(staff[3]);
+if (cartUnits >= 0) wh.cfg.cartUnits = cartUnits;      // what-if: cart size (0 = single-order picking)
 // 4. build the warehouse picture from the layout
 drawLayout();
 // 5. the workload enters the flowchart; each order / receipt line waits in its arrival delay until its time
@@ -160,6 +183,7 @@ drawLayout();
 for (ScenarioData.OrderSpec s : wh.scenario.orders) orderIn.take(new Order(s));
 for (ScenarioData.ReceiptSpec s : wh.scenario.receipts) receiptIn.take(new Receipt(s));
 dayClockIn.take(new DayClock());
+tickIn.take(new Ticker());
 traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.scenario.orders.size() + " orders and "
 	+ wh.scenario.receipts.size() + " receipt lines from " + scenarioPath + ", seed " + seed
 	+ ", staff pick/pack/receive/putaway = " + staff[0] + "/" + staff[1] + "/" + staff[2] + "/" + staff[3]);
@@ -197,20 +221,44 @@ for (Order o : go) {
 }
 """, "After every putaway: release the held orders whose lines are now all in stock.")
 
-    fn("beginPick", "double", [("Order", "a")], """
-if (a.pick == null) {       // plan once (the delay time may be evaluated more than once)
-	kpi.pickStarted(a.spec, time());
-	a.pick = wh.planPick(a.spec, time());
-	if (a.picker != null) a.picker.motion = a.pick.motion;
+    fn("dispatch", None, [], """
+// a free picker takes the next cart (Warehouse.formBatch) as soon as the wave release rule allows it;
+// pending = released orders that are waiting in pickPool and are not on a cart yet, oldest first
+while (!pending.isEmpty()) {
+	if (pickerPool.idle() <= tourSeize.size()) return;      // every free picker already has a cart waiting
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : pending) specs.add(o.spec);
+	if (!wh.releaseNow(specs, kpi.oRel[specs.get(0).index], time())) return;
+	int[] pos = wh.formBatch(specs);
+	ArrayList<Order> batch = new ArrayList<Order>();
+	for (int i = pos.length - 1; i >= 0; i--) batch.add(0, pending.remove(pos[i]));
+	tourIn.take(new PickTour(batch));
 }
-return a.pick.duration;
-""", "Plans the picking tour (depot -> slots -> packing station -> depot); returns its duration in seconds.")
+""", "Wave release: forms picking carts from the waiting orders and starts them on free pickers.")
 
-    fn("endPick", None, [("Order", "a")], """
-nPicked++;
-wh.inv.consume(a.spec);
-kpi.pickEnded(a.spec, time(), a.pick);
+    fn("beginTour", "double", [("PickTour", "a")], """
+if (a.plan == null) {       // plan once (the delay time may be evaluated more than once)
+	List<ScenarioData.OrderSpec> specs = new ArrayList<ScenarioData.OrderSpec>();
+	for (Order o : a.orders) {
+		specs.add(o.spec);
+		kpi.pickStarted(o.spec, time());
+	}
+	a.plan = wh.planBatch(specs, time());
+	if (a.picker != null) a.picker.motion = a.plan.motion;
+}
+return a.plan.duration;
+""", "Plans the cart's tour (depot -> all its slots -> packing station -> depot); returns its duration in seconds.")
+
+    fn("endTour", None, [("PickTour", "a")], """
+for (Order o : a.orders) {
+	nPicked++;
+	wh.inv.consume(o.spec);
+	kpi.pickEnded(o.spec, time(), a.plan);
+}
+kpi.tourEnded(a.plan);
+nTours++;
 if (a.picker != null) a.picker.motion = null;
+for (Order o : a.orders) pickPool.free(o);      // the picked orders go on to packing
 """)
 
     fn("stageTime", "double", [("Order", "a")], """
@@ -274,17 +322,21 @@ switch (t) {
 }
 """)
 
+    fn("sx", "double", [("double", "x")], "return ox + (x - wh.layout.originX) * px;", "Screen x of a layout x (metres).")
+    fn("sy", "double", [("double", "y")], "return oy + (wh.layout.originY + wh.layout.heightM() - y) * px;",
+       "Screen y of a layout y (metres); y points up, so the front of the building is at the bottom.")
+
     fn("drawLayout", None, [], """
 if (presentation == null) return;          // no animation in this experiment
 LayoutData L = wh.layout;
-px = Math.min(900.0 / L.widthM(), 600.0 / L.heightM());
-double c = L.cellM * px;
+px = Math.min(900.0 / L.widthM(), 700.0 / L.heightM());
+double cw = L.cellW * px, ch = L.cellH * px;
 int k = 0;                                 // insert at the bottom so the worker dots stay on top
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
-		s.setPos(ox + q * c, oy + r * c);
-		s.setSize(c, c);
+		s.setPos(sx(L.originX + q * L.cellW), sy(L.originY + (r + 1) * L.cellH));
+		s.setSize(cw, ch);
 		s.setFillColor(cellColor(L.grid[r][q]));
 		s.setLineColor(new Color(255, 255, 255));
 		s.setLineWidth(0.5);
@@ -294,7 +346,7 @@ for (int r = 0; r < L.rows; r++) {
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
 	ShapeText t = new ShapeText();
-	t.setPos(ox + f.x * px, oy + f.y * px - 5);
+	t.setPos(sx(f.x), sy(f.y) - 4);
 	t.setText(f.id);
 	t.setColor(Color.WHITE);
 	t.setFont(new Font("SansSerif", Font.BOLD, 8));
@@ -302,10 +354,10 @@ for (LayoutData.Facility f : L.facilities) {
 	presentation.insert(k++, t);
 }
 ShapeText title = new ShapeText();
-title.setPos(ox, oy + L.rows * c + 6);
-title.setText("Layout " + L.id + "  (" + L.cols + " x " + L.rows + " cells of " + L.cellM + " m, " + L.slotId.length
-	+ " slots, slotting " + L.slotting + ")   grey = aisle, brown = shelf, green DI = inbound dock, blue DO = outbound dock, "
-	+ "yellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
+title.setPos(ox, oy + L.heightM() * px + 6);
+title.setText("Layout " + L.id + "\\n" + L.cols + " x " + L.rows + " cells of " + String.format("%.2f x %.2f", L.cellW, L.cellH)
+	+ " m, " + L.slotId.length + " slots, slotting " + L.slotting + "\\ngrey = aisle, brown = shelf, green DI = inbound dock, "
+	+ "blue DO = outbound dock,\\nyellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
 title.setColor(new Color(69, 90, 100));
 title.setFont(new Font("SansSerif", Font.PLAIN, 11));
 presentation.insert(k++, title);
@@ -327,8 +379,8 @@ return new double[]{f.x, f.y};
     fn("workerXY", "double[]", [("int", "i")], """
 Worker u = workers.get(i);
 double[] p = u.motion != null ? u.motion.at(time()) : homeXY(u);
-double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellM;     // spread workers that share a spot
-return new double[]{ox + (p[0] + off) * px, oy + (p[1] + off) * px};
+double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellW;     // spread workers that share a spot
+return new double[]{sx(p[0] + off), sy(p[1] + off)};
 """)
 
     fn("workerVisible", "boolean", [("int", "i")], "return wh != null && i < workers.size();")
@@ -344,11 +396,11 @@ if (wh == null) return "loading ...";
 long t = (long) time();
 return String.format("%s   seed %d   day file %s%n"
 	+ "clock %02d:%02d:%02d (day ends at %s s)%n"
-	+ "orders: arrived %d   held now %d   picked %d   packed %d   shipped %d   in system %d%n"
+	+ "orders: arrived %d   held now %d   waiting for a cart %d   picked %d (%d carts)   packed %d   shipped %d   in system %d%n"
 	+ "busy: pickers %d/%d   packers %d/%d   receivers %d/%d   putaway %d/%d%n"
 	+ "receiving buffer %d / %d lines   staging %d orders   stock on hand %d units",
 	wh.layout.id, seed, scenarioPath, t / 3600, (t / 60) % 60, t % 60, Kpi.fmt(wh.cfg.horizon),
-	nArrived, (int) kpi.held.value(), nPicked, nPacked, nShipped, (int) kpi.inSystem.value(),
+	nArrived, (int) kpi.held.value(), pending.size(), nPicked, nTours, nPacked, nShipped, (int) kpi.inSystem.value(),
 	pickerPool.busy(), staff[0], packerPool.busy(), staff[1], receiverPool.busy(), staff[2], putawayPool.busy(), staff[3],
 	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), (int) kpi.staging.value(), wh.inv.totalOnHand());
 """)
@@ -363,24 +415,33 @@ return String.format("%s   seed %d   day file %s%n"
                maximumCapacity=True)
     main.block("stockCheck", "SelectOutput", xs(2), Y0, "Order", conditionIsProbabilistic=False, condition="admit(agent)")
     main.block("holdWait", "Wait", xs(2) + 45, Y0 + 70, "Order", maximumCapacity=True)
-    main.block("pickSeize", "Seize", xs(3), Y0, "Order", seizeFromOnePool=True, resourcePool="pickerPool",
-               resourceQuantity="1", maximumCapacity=True, onSeizeUnit="agent.picker = (Worker) unit;")
-    main.block("pickWalk", "Delay", xs(4), Y0, "Order", delayTime=sec("beginPick(agent)"), maximumCapacity=True,
-               onExit="endPick(agent);")
-    main.block("pickRelease", "Release", xs(5), Y0, "Order", movingGoHome=False)
+    # released orders wait here until their cart's tour is over (Main.dispatch / endTour)
+    main.block("pickPool", "Wait", xs(4), Y0, "Order", maximumCapacity=True,
+               onEnter="pending.add(agent);\ndispatch();")
     main.block("pack", "Service", xs(6), Y0, "Order", seizeFromOnePool=True, resourcePool="packerPool",
                resourceQuantity="1", maximumCapacity=True, movingGoHome=False, delayTime=sec("wh.packTime(agent.spec)"))
     main.block("staging", "Delay", xs(7), Y0, "Order", delayTime=sec("stageTime(agent)"), maximumCapacity=True,
                onExit="orderShipped(agent);")
     main.block("shipped", "Sink", xs(8), Y0, "Order")
     for a, pa, b, pb in [("orderIn", "out", "orderArrive", "in"), ("orderArrive", "out", "stockCheck", "in"),
-                         ("stockCheck", "outT", "pickSeize", "in"), ("stockCheck", "outF", "holdWait", "in"),
-                         ("holdWait", "out", "pickSeize", "in"), ("pickSeize", "out", "pickWalk", "in"),
-                         ("pickWalk", "out", "pickRelease", "in"), ("pickRelease", "out", "pack", "in"),
+                         ("stockCheck", "outT", "pickPool", "in"), ("stockCheck", "outF", "holdWait", "in"),
+                         ("holdWait", "out", "pickPool", "in"), ("pickPool", "out", "pack", "in"),
                          ("pack", "out", "staging", "in"), ("staging", "out", "shipped", "in")]:
         main.connect(a, pa, b, pb)
+    # picking tours (one agent per cart)
+    YT = Y0 + 110
+    main.block("tourIn", "Enter", xs(3), YT, "PickTour")
+    main.block("tourSeize", "Seize", xs(4), YT, "PickTour", seizeFromOnePool=True, resourcePool="pickerPool",
+               resourceQuantity="1", maximumCapacity=True, onSeizeUnit="agent.picker = (Worker) unit;")
+    main.block("tourWalk", "Delay", xs(5), YT, "PickTour", delayTime=sec("beginTour(agent)"), maximumCapacity=True,
+               onExit="endTour(agent);")
+    main.block("tourRelease", "Release", xs(6), YT, "PickTour", movingGoHome=False, onExit="dispatch();")
+    main.block("tourDone", "Sink", xs(7), YT, "PickTour")
+    for a, pa, b, pb in [("tourIn", "out", "tourSeize", "in"), ("tourSeize", "out", "tourWalk", "in"),
+                         ("tourWalk", "out", "tourRelease", "in"), ("tourRelease", "out", "tourDone", "in")]:
+        main.connect(a, pa, b, pb)
     # inbound
-    Y1 = Y0 + 170
+    Y1 = YT + 120
     main.block("receiptIn", "Enter", xs(0), Y1, "Receipt")
     main.block("receiptArrive", "Delay", xs(1), Y1, "Receipt", delayTime=sec("max(0, agent.spec.t - time())"),
                maximumCapacity=True, onExit="kpi.receiptArrived(agent.spec, time());")
@@ -405,6 +466,13 @@ return String.format("%s   seed %d   day file %s%n"
     main.block("dayEnd", "Sink", xs(2), Y2, "DayClock")
     main.connect("dayClockIn", "out", "endOfDay", "in")
     main.connect("endOfDay", "out", "dayEnd", "in")
+    # wave release re-check every tick_s (orders that have waited max_wait_s get a cart)
+    main.block("tickIn", "Enter", xs(4), Y2, "Ticker")
+    main.block("tick", "Delay", xs(5), Y2, "Ticker", delayTime=sec("wh.cfg.tick"), maximumCapacity=True,
+               onExit="dispatch();\nif (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());")
+    main.block("tickOut", "Sink", xs(6), Y2, "Ticker")
+    main.connect("tickIn", "out", "tick", "in")
+    main.connect("tick", "out", "tickOut", "in")
     # resource pools (sized in setup())
     for i, (pool, label) in enumerate([("pickerPool", "pickers"), ("packerPool", "packers"),
                                        ("receiverPool", "receivers"), ("putawayPool", "putaway workers")]):
@@ -436,15 +504,23 @@ return String.format("%s   seed %d   day file %s%n"
                   ("receiving buffer", "kpi == null ? 0 : kpi.recvBuffer.value()", "#F9A825")],
                  window=60000, recurrence=300)
     sh.text(20, Y0 - 50, "Process flowchart (generic: the same for every layout)", size=16, bold=True, col="#37474F")
-    sh.text(20, Y0 - 28, "Outbound: arrive, stock check (hold if short), pick tour, pack, staging until cut-off, ship.   "
-            "Inbound: arrive, receive, putaway trip, stock up (releases held orders).", size=11, col="#546E7A")
+    sh.text(20, Y0 - 28, "Outbound: arrive, stock check (hold if short), wait for a cart (wave release), cart tour by a picker, "
+            "pack, staging until cut-off, ship.   Inbound: arrive, receive, putaway trip, stock up (releases held orders).",
+            size=11, col="#546E7A")
 
     # ------------------------------------------------------------------ experiments
-    m.experiments = [simulation_xml(m, main), pv_xml(m, main, P, "CompareLayouts",
-                     "All candidate layouts x days 1-5 (layoutIndex x seed). Results: results/runs.csv.",
-                     [("layoutIndex", 0, "N_LAYOUTS-1"), ("seed", 1, 5)]),
-                     pv_xml(m, main, P, "StaffPackers", "Packers 2..5 x days 1-5 on the default layout. Results: results/runs.csv.",
-                     [("nPackers", 2, 5), ("seed", 1, 5)])]
+    m.experiments = [
+        simulation_xml(m, main),
+        pv_xml(m, main, P, "CompareLayouts", "Every design in data/layouts/index.txt x synthetic days 1-10 "
+               "(layoutIndex x seed, common random numbers). Results: results/runs.csv.",
+               [("layoutIndex", 0, "N_LAYOUTS-1"), ("seed", 1, 10)]),
+        pv_xml(m, main, P, "ValidateRealDays", "The as-is layout on the 10 replayed historical days "
+               "(data/scenarios/real_index.txt). Results: results/runs.csv.", [("realDay", 1, 10)]),
+        pv_xml(m, main, P, "StaffPickers", "Pickers 2..8 x synthetic days 1-10 on Main.layoutFile. Results: results/runs.csv.",
+               [("nPickers", 2, 8), ("seed", 1, 10)]),
+        pv_xml(m, main, P, "CartSize", "Cart size 0 (single-order picking), 12, 24, 36 units x days 1-10 on "
+               "Main.layoutFile. Results: results/runs.csv.", [("cartUnits", 0, 36, 12), ("seed", 1, 10)]),
+    ]
     return m
 
 
@@ -480,19 +556,19 @@ def simulation_xml(m, main):
 
 
 def pv_xml(m, main, P, name, desc, ranges):
-    """Parameters Variation over integer ranges [(param, from, to)], one replication per combination."""
+    """Parameters Variation over integer ranges [(param, from, to[, step])], one replication per combination."""
     n_runs = 1
     vals = ""
-    for pname, lo, hi in ranges:
-        hi_code = str(hi)
+    for rg in ranges:
+        pname, lo, hi = rg[:3]
+        step = rg[3] if len(rg) > 3 else 1
         if isinstance(hi, str):
-            hi_code = hi.replace("N_LAYOUTS", str(N_LAYOUTS))
-            hi = eval(hi_code)
-        n_runs *= hi - lo + 1
+            hi = eval(hi.replace("N_LAYOUTS", str(N_LAYOUTS)))
+        n_runs *= (hi - lo) // step + 1
         vals += (f'<FreeformParamValue>\n<Id>{P[pname]}</Id>\n</FreeformParamValue>\n'
                  f'<RangeVariationParamValue>\n<Id>{P[pname]}</Id>\n<Type>RANGE</Type>\n'
                  f'<From Class="CodeValue">\n<Code>{cd(lo)}</Code>\n</From>\n<To Class="CodeValue">\n<Code>{cd(hi)}</Code>\n</To>\n'
-                 f'<Step Class="CodeValue">\n<Code>{cd(1)}</Code>\n</Step>\n</RangeVariationParamValue>\n')
+                 f'<Step Class="CodeValue">\n<Code>{cd(step)}</Code>\n</Step>\n</RangeVariationParamValue>\n')
     after = 'runs++;\ntraceln("run " + runs + " of ' + str(n_runs) + ' done");'
     main.shadow.method("Main", f"  void _pv{name}(Main root) {{ int runs = 0;\n{after}\n Object t = \"runs done: \" + runs; }}")
     var = (f'<Variable Class="PlainVariable">\n<Id>{m.ids()}</Id>\n<Name>{cd("runs")}</Name>\n<X>40</X><Y>300</Y>\n'

@@ -1,168 +1,116 @@
-# WarehouseSim: grid layout → automatically built AnyLogic model
+# WarehouseSim: a real footwear warehouse, optimised in coordinates, simulated in AnyLogic
 
-IE305 Simulation Lab. An e-commerce fulfilment warehouse (human pickers, packing stations, multi-SKU orders,
-inbound trucks) whose AnyLogic model is **built at start-up from a layout file**. Changing the layout means
-changing a JSON file, not the model.
+IE305 Simulation Lab, IEOR IIT Bombay. This project models the order-fulfilment warehouse of a footwear manufacturer:
+- **Data:** the real WMS extract, Mendeley Data pf2w725pw3, 2023, 122k order lines and 215k picks.
+- **Processes:** wave (cart) picking, packing, carrier cut-offs, inbound putaway and stock.
+- **Automatic model generation:** the AnyLogic model is built at start-up from a layout JSON.
+- **Simulation-based optimisation:** the layout design is optimised in coordinates. That means where the pick-up/drop-off point (depot) sits, where extra cross aisles go, and how SKUs are slotted. Staffing and cart size are optimised too.
 
 ```
- grid of building blocks          compiled layout JSON             generic AnyLogic model (one .alp)
- (template or hand-drawn)  ──▶   nodes, edges, facilities,  ──▶   Main.setup(): load files, size pools,
- python/whsim/templates.py        slots + SKU slotting              draw layout, feed workload into the
- python/whsim/layout.py           data/layouts/*.json               fixed flowchart → KPIs to results/
-                                                                    ▲
- input models (teammate) ──▶ data/skus.csv, data/scenarios/day_<seed>.csv, data/config/run_config.json
+ real data (data_raw/mendeley)                       design in coordinates (depot x,y; cross aisles x; slotting)
+   │ whsim.real_data / input_models                     │ whsim.design  (real building from Storage_Location.csv)
+   ▼                                                    ▼
+ fitted input models ──▶ skus.csv, day files ──▶  layout JSON (grid, aisle graph, slots)  ◀── whsim.optimize
+ (input_models.json)     real-day replays          │                                            (GA + DES ranking)
+                                                   ▼
+            generic AnyLogic model (model/WarehouseSim/WarehouseSim.alp): Main.setup() reads the files,
+            builds the warehouse picture and resource pools, feeds the orders into the fixed flowchart
+                                                   │
+                                                   ▼  results/runs.csv  ──▶ whsim.analyze, reports/
 ```
 
-## Quick start
+## Reports (start here)
 
-```bash
-tools/check.sh          # data + all tests + generate and verify model/WarehouseSim/WarehouseSim.alp
-tools/refsim.sh         # expected KPIs from the reference simulator, all layouts x 5 days
-```
-
-Then in **AnyLogic 8.9 (PLE is enough)**: open `model/WarehouseSim/WarehouseSim.alp` and run one of:
-
-| Experiment | What it does |
+| Report | Content |
 |---|---|
-| **Simulation** | One day on `Main.layoutFile` (default `I_v_c0_central_abc`), animated: the layout is drawn from the JSON and worker dots move along the aisles. The console prints a summary at the end of the day. |
-| **CompareLayouts** | Every layout in `data/layouts/index.txt` × days 1–5 (30 runs). |
-| **StaffPackers** | Packers 2–5 × days 1–5 on the default layout (20 runs). |
+| `reports/REPORT.md` | **Final report**: scope, data, model, results, what-ifs, optimisation, recommendation |
+| `reports/input_analysis.md` | Input data analysis: cleaning log, summary statistics, fitted distributions with GoF tests, validation of the generator |
+| `reports/validation.md` | The as-is layout model against the real pick locations (tours within 1%) |
+| `reports/optimization.md` | The four optimisation stages with figures |
 
-Every run (of every experiment) appends one row to `model/WarehouseSim/results/runs.csv` and writes `orders_<layout>_s<seed>.csv`. Summarise with:
+## Run everything
 
 ```bash
 cd python
-python3 -m whsim.analyze ../model/WarehouseSim/results/runs.csv --where packers=3 --baseline I_v_c0_central_random   # CompareLayouts
-python3 -m whsim.analyze ../model/WarehouseSim/results/runs.csv --by packers --where layout=I_v_c0_central_abc       # StaffPackers
+python3 -m whsim.cli config          # run settings (data/config/run_config.json)
+python3 -m whsim.cli scenarios       # fit the input models, write skus.csv + day files + historical waves
+python3 -m whsim.input_report        # reports/input_analysis.md + figures
+python3 -m whsim.validate            # reports/validation.md
+python3 -m whsim.optimize            # simulation-based optimisation (writes designs.json + layouts), ~10 min
+python3 -m whsim.opt_report          # reports/optimization.md + figures
+cd .. && tools/check.sh              # all tests + generate and verify the AnyLogic model
 ```
 
-Compare with `results/refsim_runs.csv` from `tools/refsim.sh`. The two must agree closely; see "Verification" below.
+## AnyLogic (8.9, free PLE)
 
-## The pipeline, file by file
+Open `model/WarehouseSim/WarehouseSim.alp` and run one of these experiments:
 
-| Step | Code | Output |
-|---|---|---|
-| 1. Layout candidates | `python/whsim/templates.py` (parametric: flow I/U/L, racks v/h, cross-aisles, packing position) | a `Grid` of tokens |
-| 2. Validate + compile | `python/whsim/layout.py` (`validate`, `compile_layout`) | `data/layouts/<id>.json` |
-| 3. Workload | `python/whsim/scenario.py` (**placeholder** until the fitted input models are ready) | `data/skus.csv`, `data/scenarios/day_<seed>.csv` |
-| 4. Run settings | `python/whsim/cli.py` (`RUN_CONFIG`) | `data/config/run_config.json` |
-| 5. Model | `anylogic/build_model.py` + the core `java/src/wh/*.java` | `model/WarehouseSim/WarehouseSim.alp` |
-| 6. Analysis | `python/whsim/analyze.py`, `python/whsim/render.py` (layout PNGs in `build/previews/`) | tables, figures |
-
-`python3 -m whsim.cli all|layouts|scenarios|config` regenerates the inputs. `python3 -m whsim.cli check my_grid.txt` validates a hand-drawn grid.
-
-### Grid tokens (one cell = `cell_m` metres, default 1.5 m)
-
-| Token | Meaning | | Token | Meaning |
-|---|---|---|---|---|
-| `#` | wall / column | | `DI` | inbound dock (outer wall only) |
-| `.` | unused floor | | `DO` | outbound dock (outer wall only) |
-| `A` | aisle | | `R` | receiving buffer cell |
-| `S` | shelf bay with `levels` pick slots | | `PK` | packing station (one per cell) |
-| `H` | picker depot (exactly one) | | `G` | outbound staging cell |
-
-Every token except `#`, `.` and `S` is walkable and becomes a node of the aisle graph. Edges join walkable 4-neighbours. A slot is picked from the first walkable neighbour of its bay, in N, S, W, E order. The validator rejects:
-- unknown tokens, or docks off the outer wall
-- shelves or docks with no walkable neighbour
-- walkable cells not connected to the depot
-- missing facilities
-- fewer slots than SKUs
-
-### Compiled layout JSON (`whsim.layout/1`)
-
-`id, template, params, slotting, cell_m, rows, cols, levels, grid` (rows of tokens), `nodes` (`[r, c, x_m, y_m]`, index = node id), `edges` (`[a, b, length_m]`), `facilities` (`{id, type, r, c, x, y, node}`, ids `DI1, PK2, ...`), `slots` (`{id, r, c, level, node, sku}`), `stats`. **All geometry is decided in Python. AnyLogic only instantiates what this file lists.**
-
-### Workload files (what the input models must produce)
-
-- `data/skus.csv`: `sku,weight,init_qty`. `weight` = relative pick frequency (used for ABC slotting), `init_qty` = opening stock.
-- `data/scenarios/day_<seed>.csv`: `t_s,type,id,sku,qty`, sorted by `t_s`. One row per order line (`ORDER`, id = order id, all lines of an order share `t_s`) or per receipt line (`RECEIPT`, id = truck id).
-- `data/config/run_config.json`: horizon, carrier cut-offs, promise lead time, staff, walking speeds, receiving buffer size per cell, and the service-time distributions:
-  - `pick_per_line_s`
-  - `pack_per_order_s` + `pack_per_unit_s` × units
-  - `receive_per_line_s`
-  - `putaway_handling_s`
-
-  Families: `const, uniform, triangular, exponential, normal (truncated at min), lognormal (mean, sd of the variable), gamma (shape, scale), weibull (shape, scale), empirical (values)`.
-
-The placeholder generator is plain assumptions (NHPP orders, Zipf SKU mix, geometric basket size, an (s, S)-like truck rule). It is documented in `scenario.py`. Replacing it with the fitted models means writing these same files.
-
-## How the model is built at run time (the "translation")
-
-`Main.setup()` runs on start-up:
-
-1. Resolves the files: `layoutIndex ≥ 0` picks a line of `data/layouts/index.txt` (used by the experiments). `{seed}` in `scenarioFile` becomes the seed.
-2. `Warehouse.load(...)` parses the layout, run config, day file and SKU master, and **cross-checks them**: every SKU must have a slot and be in the SKU master, and every node must be reachable. Any problem stops the run with a message naming the file and line.
-3. Sizes the four resource pools (pickers, packers, receivers, putaway) from the config, or from parameters `nPickers`... if > 0.
-4. `drawLayout()` draws every cell and facility label from the JSON (runtime `ShapeRectangle`/`ShapeText`).
-5. Creates one `Order` agent per order and one `Receipt` per receipt line, and puts them into the flowchart. Each waits in its arrival delay until its time.
-
-The flowchart is the same for every warehouse:
-
-```
-Order:   orderIn → orderArrive (until t) → stockCheck ─ reserved ─────────────→ pickSeize → pickWalk → pickRelease
-                                                     └ short → holdWait ──────↗   (picker)  (tour)
-         → pack (packer) → staging (until next cut-off) → shipped
-Receipt: receiptIn → receiptArrive → receive (receiver) → putSeize → putWalk (dock → slot → dock) → putRelease
-         → stored        (stock up + held orders whose lines are now all in stock are released, oldest first)
-DayClock → endOfDay (horizon_s) → finishRun(): writes results, finishSimulation()
-```
-
-Decisions and times come from the core classes (`java/src/wh/`), embedded unchanged in `Main`:
-
-| Class | Responsibility |
+| Experiment | What it does |
 |---|---|
-| `Warehouse.planPick` | Nearest-neighbour tour: depot → slots → nearest packing station → depot. Walk at `walk_speed_mps` plus one pick time per line. |
-| `Warehouse.planPutaway` | Trip from inbound dock → slot → dock. |
-| `Warehouse.packTime` | Pack time: per order + per unit. |
-| `Inventory` | `OnHand = opening + put away − picked`. All-or-nothing reservation on arrival. Stock is pickable only after putaway. |
-| `Kpi` | Timestamps per order and receipt line, time-weighted levels, and the summary and per-order CSV files. |
+| **Simulation** | One day on `Main.layoutFile`, animated. The default is the as-is warehouse; set `layoutFile` to the recommended design to compare. Worker dots walk the real aisles. Use `Main.realDay = 1..10` to replay a historical day. |
+| **CompareLayouts** | Every design in `data/layouts/index.txt` (as-is × 4 storage policies, recommended, runner-up) × synthetic days 1–10, with common random numbers. |
+| **ValidateRealDays** | The as-is warehouse on the 10 replayed historical days. |
+| **StaffPickers** | 2–8 pickers × days 1–10. |
+| **CartSize** | Single-order picking, then 12-, 24- and 36-unit carts × days 1–10. |
 
-**Common random numbers:** every random time is drawn from a stream seeded by (seed, stream, order or receipt index). The same order gets the same pick and pack times on every layout, whatever the event order. Comparisons between layouts are therefore paired, and the CIs of the differences are tight.
+Every run appends one row to `model/WarehouseSim/results/runs.csv`. Summarise it with `python3 -m whsim.analyze` and filter one experiment with `--where`. Examples:
+- `--where pickers=7 --baseline D40.3_63.1-P3-Xnone-asis`
+- `--by pickers --where layout=...`
+- `--by cart_units`
 
-**KPIs in `runs.csv`:**
-- Fulfilment time (arrival → packed): mean and p95.
-- Cycle time (arrival → shipped).
-- % packed by the due cut-off.
-- Held orders (stock-outs) and mean hold time.
-- Pick metres per order, total putaway metres.
-- Receiving-buffer max, mean and overflow events.
-- Utilisation of each pool.
-- Units received, picked and on hand. Backlog at the end of the day.
+`tools/refsim.sh` is not used any more. The optimiser's DES results (`results/opt/*_des.csv`) are the reference-simulator numbers to compare AnyLogic against.
 
-## Verification (what was checked here, and what was not)
+## Layout designs are coordinates
 
-`tools/check.sh` runs all of the following:
+A design is a small dict (see `python/whsim/design.py`). Its id is built from the values, e.g. `D40.3_63.1-P3-Xnone-asis`:
 
-- **Python, 15 tests.** Validator rejections, hand-computed tour length on a 7×7 layout, ABC puts fast movers on the cheapest slots, all candidates valid, scenario file format.
-- **Java core, 16,000+ checks (`java/test/CoreTest.java`):**
+| Key | Meaning |
+|---|---|
+| `depot` [x, y] m | Pick-up/drop-off point, in the dataset's frame. As-is: (40.3, 63.1), the real central depot. |
+| `n_pack` | Packing stations, placed next to the depot. |
+| `cross_aisles` [x, …] m | Extra cross aisles. Each turns one rack column into an aisle, and its slots are lost. |
+| `slotting` | `asis` = the real storage, i.e. every SKU on the bay it was really picked from most often. Alternatives: `random`, `class` (A/B/C zones by pick frequency) and `abc` (dedicated by turnover). |
+
+The building comes from `Storage_Location.csv`:
+- 864 bays.
+- 17 picking aisles, 9 m apart.
+- 3 cross aisles at x = 6.6, 40.3 and 68.6 m.
+
+It is mapped onto a grid of 5/3 m × 3 m cells, with every bay on its own cell (snapping error ≤ 0.37 m). The rack-free lower-right quarter is used as the dock, receiving and staging area. That placement is an assumption, because the data has no dock positions.
+
+## The model (same flowchart for every layout)
+
+```
+Order:   orderIn → orderArrive → stockCheck ─ reserved ─→ pickPool (wait for a cart)  ─────────→ pack → staging → shipped
+                                            └ short → holdWait ─↗          ▲ freed when its cart's tour ends
+Cart:    Main.dispatch() forms carts (first-fit ≤ cart_units, wave release: full cart or oldest waited max_wait_s)
+         tourIn → tourSeize (picker) → tourWalk (nearest-neighbour tour over all the cart's slots → packing → depot) → tourRelease
+Receipt: receiptIn → receiptArrive → receive (receiver) → putSeize → putWalk (dock → slot → dock) → putRelease → stored
+         (stock up, then held orders whose lines are now in stock are released)
+Ticker every tick_s re-checks the wave release; DayClock ends the day at horizon_s and writes the KPIs.
+```
+
+The decisions and times come from the core Java in `java/src/wh/`, embedded unchanged in `Main`:
+- `Warehouse.formBatch`, `releaseNow` and `planBatch`
+- `Inventory`
+- `Kpi`
+
+`wh.RefSim` is the same process as a plain-Java event loop. It is used by the optimiser and the tests. Every random time is drawn from a stream seeded by (seed, stream, order index), so comparisons between designs are paired (common random numbers).
+
+## Verification (`tools/check.sh`)
+
+- **Python tests:**
+  - Layout compiler and validator, rectangular cells, slotting policies.
+  - Real-building geometry: every bay on its own cell.
+  - Designs and cross aisles.
+  - Input files: format, determinism, exact replay of a real day.
+- **Java `CoreTest`:**
   - JSON parser.
-  - Every distribution's sample mean against its theoretical mean.
-  - Tiny-layout tour, walk timing and motion.
-  - Inventory all-or-nothing reservation.
-  - Scenario parsing errors.
-  - **Java router = Python router exactly** (length, station, stop order) on every order of day 1 on every layout.
-  - **Full days on the reference simulator** for every layout: stock balance, units picked = units of picked orders, timestamps in order, every shipment at the first cut-off after packing, and all receipts put away.
-- **AnyLogic model:**
-  - Every Java snippet in the model (block parameters, functions, shapes, experiments, plus the embedded core) is compiled against the AnyLogic 8.9.10 engine and Process Modeling Library jars.
-  - The `.alp` is loaded and re-written by AnyLogic's own serializer and version converters.
-  - The serializer drops only the default `connections` agent-link tags, as for the lab models.
-
-**Not verified here: an actual run inside AnyLogic.** Please run `Simulation` once and check:
-- the layout is drawn and the dots move
-- the console line at the end of the day
-- `CompareLayouts` results against `results/refsim_runs.csv`
-
-Expect close but not identical numbers. AnyLogic may order simultaneous events differently, for example which waiting order gets a freed picker at the same instant.
-
-## v1 modelling assumptions (deliberately simple)
-
-- One zone, single-level shelving, one SKU per slot (no slot capacity limit).
-- Single-order picking, FIFO, first free picker.
-- The packing queue is pooled across stations. The station only changes the walk.
-- An order is released only when every line is in stock (hold policy). Stock counts only after the putaway trip has finished.
-- Putaway takes one receipt line per trip.
-- No congestion between pickers.
-- Shipping happens at fixed carrier cut-offs, with no travel to the outbound dock.
-- A day is a terminating run (no warm-up). It starts with opening stock and empty queues.
-
-Each of these is one place in the code, which keeps the next refinements local. Examples: batch picking in `planPick`, wave release in the stock check, picker congestion via an AnyLogic network (pickers moving with `MoveTo`).
+  - Every distribution: sample mean against its formula, and the truncated-normal tail.
+  - Independence of the random streams.
+  - Batching: first-fit, multi-trip orders, wave release.
+  - Inventory.
+  - **Java router = Python router to the last bit on every order.**
+  - **Full reference-sim days**: stock balance, every picked order on exactly one cart, shipments at cut-offs.
+- **AnyLogic model:** every Java snippet in it is compiled against the AnyLogic 8.9.10 engine jars, and the `.alp` is loaded and re-written by AnyLogic's own serializer and converters.
+- **Not possible here:** a run inside the AnyLogic IDE. Please run **Simulation** once and **ValidateRealDays**, then compare with `results/opt/`.

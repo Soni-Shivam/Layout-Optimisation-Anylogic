@@ -1,0 +1,65 @@
+{
+  "note": "written by whsim.optimize: as-is x 4 storage policies, recommended, runner-up",
+  "designs": [
+    {
+      "depot": [
+        40.3,
+        63.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [],
+      "slotting": "asis"
+    },
+    {
+      "depot": [
+        40.3,
+        63.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [],
+      "slotting": "random"
+    },
+    {
+      "depot": [
+        40.3,
+        63.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [],
+      "slotting": "class"
+    },
+    {
+      "depot": [
+        40.3,
+        63.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [],
+      "slotting": "abc"
+    },
+    {
+      "depot": [
+        46.6,
+        111.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [
+        18.27,
+        53.27
+      ],
+      "slotting": "abc"
+    },
+    {
+      "depot": [
+        34.93,
+        102.1
+      ],
+      "n_pack": 3,
+      "cross_aisles": [
+        14.93,
+        23.27
+      ],
+      "slotting": "abc"
+    }
+  ]
+}

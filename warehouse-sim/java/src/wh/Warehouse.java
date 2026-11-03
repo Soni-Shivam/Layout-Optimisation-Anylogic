@@ -70,34 +70,121 @@ public final class Warehouse {
 
   // ------------------------------------------------------------------ picking
   public static final class PickPlan {
-    public double duration, length;
-    public int station, stops;
+    public double duration, length;   // seconds; metres walked (all trips)
+    public int station, stops, trips, orders, units;
     public Router.Motion motion;
   }
 
-  /** Single-order picking tour starting at the depot at time t0: walk + one pick time per order line. */
-  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
-    Random r = rng(S_PICK, o.index);
-    Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
-    int[] nodes = new int[o.skus.length];
-    for (int i = 0; i < o.skus.length; i++) {
-      nodes[i] = layout.nodeOfSku(o.skus[i]);
-      dwell.merge(nodes[i], cfg.pickPerLine.sample(r), Double::sum);   // lines sampled in order-line order
+  /**
+   * Batch (wave) formation, greedy first-fit in release order: the oldest waiting order always goes on the
+   * cart; every later order that still fits (cart_units, max_orders) is added. With cart_units = 0 every
+   * batch is one order (single-order picking). Returns positions in the waiting list, ascending.
+   */
+  public int[] formBatch(List<ScenarioData.OrderSpec> waiting) {
+    if (waiting.isEmpty()) return new int[0];
+    List<Integer> pos = new ArrayList<Integer>();
+    pos.add(0);
+    int units = waiting.get(0).units();
+    for (int i = 1; i < waiting.size() && cfg.cartUnits > 0; i++) {
+      if (cfg.maxOrders > 0 && pos.size() >= cfg.maxOrders) break;
+      int u = waiting.get(i).units();
+      if (units + u <= cfg.cartUnits) { pos.add(i); units += u; }
     }
-    Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
-    int k = tour.stops.length;
-    int[] targets = new int[k + 2];
-    double[] dw = new double[k + 2];
-    for (int i = 0; i < k; i++) { targets[i] = tour.stops[i]; dw[i] = dwell.get(tour.stops[i]); }
-    targets[k] = layout.stations[tour.station];
-    targets[k + 1] = layout.home;
+    int[] out = new int[pos.size()];
+    for (int i = 0; i < out.length; i++) out[i] = pos.get(i);
+    return out;
+  }
+
+  /**
+   * The picking tour(s) of a batch, starting at the depot at t0. A batch that fits the cart is ONE trip:
+   * nearest-neighbour route over all its distinct slots, then the nearest packing station, then back to the
+   * depot. A batch larger than the cart (only possible for a single order bigger than cart_units) is split
+   * like the real WMS splits such orders over several waves: its lines are cut, in line order, into chunks of
+   * at most cart_units units (one trip each), and a line bigger than the cart takes ceil(qty / cart_units)
+   * trips to its slot. Pick time: one draw per order line from that ORDER's own stream, spent on the trip that
+   * picks the line (so an order's pick times do not depend on its batch).
+   */
+  public PickPlan planBatch(List<ScenarioData.OrderSpec> batch, double t0) {
+    List<List<int[]>> trips = new ArrayList<List<int[]>>();      // per trip: {node, line number}
+    List<Double> lineDwell = new ArrayList<Double>();
+    int units = 0;
+    for (ScenarioData.OrderSpec o : batch) units += o.units();
+    boolean split = cfg.cartUnits > 0 && units > cfg.cartUnits;
+    List<int[]> cur = new ArrayList<int[]>();
+    int curUnits = 0;
+    for (ScenarioData.OrderSpec o : batch) {
+      Random r = rng(S_PICK, o.index);
+      for (int i = 0; i < o.skus.length; i++) {
+        int v = layout.nodeOfSku(o.skus[i]);
+        int line = lineDwell.size();
+        lineDwell.add(cfg.pickPerLine.sample(r));
+        int q = o.qty[i];
+        if (!split) { cur.add(new int[]{v, line}); continue; }
+        if (q > cfg.cartUnits) {                                 // its own trips: picks on the first one
+          if (!cur.isEmpty()) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+          int n = (q + cfg.cartUnits - 1) / cfg.cartUnits;
+          for (int k = 0; k < n; k++) {
+            List<int[]> t = new ArrayList<int[]>();
+            t.add(new int[]{v, k == 0 ? line : -1});
+            trips.add(t);
+          }
+          continue;
+        }
+        if (curUnits + q > cfg.cartUnits) { trips.add(cur); cur = new ArrayList<int[]>(); curUnits = 0; }
+        cur.add(new int[]{v, line});
+        curUnits += q;
+      }
+    }
+    if (!cur.isEmpty()) trips.add(cur);
+    List<Integer> targets = new ArrayList<Integer>();
+    List<Double> dwells = new ArrayList<Double>();
     PickPlan p = new PickPlan();
-    p.motion = Router.walk(graph, layout, layout.home, targets, dw, cfg.walkSpeed, t0);
+    p.station = -1;
+    for (List<int[]> trip : trips) {
+      Map<Integer, Double> dwell = new LinkedHashMap<Integer, Double>();
+      int[] nodes = new int[trip.size()];
+      for (int i = 0; i < nodes.length; i++) {
+        nodes[i] = trip.get(i)[0];
+        dwell.merge(nodes[i], trip.get(i)[1] >= 0 ? lineDwell.get(trip.get(i)[1]) : 0.0, Double::sum);
+      }
+      Router.Tour tour = Router.pickTour(graph, layout.home, nodes, layout.stations);
+      for (int v : tour.stops) { targets.add(v); dwells.add(dwell.get(v)); }
+      targets.add(layout.stations[tour.station]);
+      dwells.add(0.0);
+      targets.add(layout.home);
+      dwells.add(0.0);
+      p.length += tour.length;
+      p.stops += tour.stops.length;
+      if (p.station < 0) p.station = tour.station;
+    }
+    int[] tg = new int[targets.size()];
+    double[] dw = new double[targets.size()];
+    for (int i = 0; i < tg.length; i++) { tg[i] = targets.get(i); dw[i] = dwells.get(i); }
+    p.motion = Router.walk(graph, layout, layout.home, tg, dw, cfg.walkSpeed, t0);
     p.duration = p.motion.end() - t0;
-    p.length = tour.length;
-    p.station = tour.station;
-    p.stops = k;
+    p.trips = trips.size();
+    p.orders = batch.size();
+    p.units = units;
     return p;
+  }
+
+  /**
+   * Wave release rule: release a cart now if picking is single-order, or the waiting orders fill a cart,
+   * or the oldest one was released at least max_wait_s ago. releasedAt = release time of waiting.get(0).
+   */
+  public boolean releaseNow(List<ScenarioData.OrderSpec> waiting, double oldestReleasedAt, double now) {
+    if (waiting.isEmpty()) return false;
+    if (cfg.cartUnits == 0 || now - oldestReleasedAt >= cfg.maxWait) return true;
+    int units = 0;
+    for (ScenarioData.OrderSpec o : waiting) units += o.units();
+    return units >= cfg.cartUnits || (cfg.maxOrders > 0 && waiting.size() >= cfg.maxOrders);
+  }
+
+  /** Single-order tour (a batch of one). */
+  public PickPlan planPick(ScenarioData.OrderSpec o, double t0) {
+    List<ScenarioData.OrderSpec> one = new ArrayList<ScenarioData.OrderSpec>();
+    one.add(o);
+    return planBatch(one, t0);
   }
 
   public double packTime(ScenarioData.OrderSpec o) {

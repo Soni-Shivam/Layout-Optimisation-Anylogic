@@ -1,22 +1,27 @@
 {
   "schema": "whsim.run/1",
-  "horizon_s": 57900,
+  "horizon_s": 54000,
   "cutoffs_s": [
-    14400,
-    28800,
+    25200,
     43200,
-    57600
+    52200
   ],
-  "promise_lead_s": 1800,
+  "promise_lead_s": 3600,
   "resources": {
-    "pickers": 6,
-    "packers": 3,
+    "pickers": 7,
+    "packers": 2,
     "receivers": 2,
     "putaway": 2
   },
   "walk_speed_mps": 1.0,
   "putaway_speed_mps": 1.2,
   "recv_buffer_per_cell": 25,
+  "batching": {
+    "cart_units": 24,
+    "max_orders": 0,
+    "max_wait_s": 900,
+    "tick_s": 10
+  },
   "times": {
     "pick_per_line_s": {
       "dist": "lognormal",

@@ -23,6 +23,9 @@ public final class Kpi {
   public final Stats.TimeLevel held = new Stats.TimeLevel(), recvBuffer = new Stats.TimeLevel(), staging = new Stats.TimeLevel(),
       inSystem = new Stats.TimeLevel();
   public int recvOverflows;
+  // picking tours (batches)
+  public int tours, tourOrders, tourUnits, tourTrips;
+  public double tourM, tourTime;
 
   public Kpi(Warehouse w) {
     this.w = w;
@@ -51,9 +54,19 @@ public final class Kpi {
   public void pickStarted(ScenarioData.OrderSpec o, double t) { oPickStart[o.index] = t; }
   public void pickEnded(ScenarioData.OrderSpec o, double t, Warehouse.PickPlan p) {
     oPickEnd[o.index] = t;
-    oPickM[o.index] = p.length;
+    oPickM[o.index] = p.length / p.orders;      // the order's share of its tour
     oStation[o.index] = p.station;
   }
+  /** Once per picking tour, when it ends. */
+  public void tourEnded(Warehouse.PickPlan p) {
+    tours++;
+    tourOrders += p.orders;
+    tourUnits += p.units;
+    tourTrips += p.trips;
+    tourM += p.length;
+    tourTime += p.duration;
+  }
+
   public void orderPacked(ScenarioData.OrderSpec o, double t) { oPacked[o.index] = t; staging.add(t, 1); }
   public void orderShipped(ScenarioData.OrderSpec o, double t) {
     oShip[o.index] = t;
@@ -112,6 +125,12 @@ public final class Kpi {
     s.put("on_time_pct", dueToday > 0 ? 100.0 * onTime / dueToday : Double.NaN);
     s.put("held_orders", heldN); s.put("hold_mean_s", Stats.mean(hold));
     s.put("pick_m_per_order", Stats.mean(pickM)); s.put("pick_m_total", pickTotal);
+    s.put("tours", tours);
+    s.put("orders_per_tour", tours > 0 ? (double) tourOrders / tours : Double.NaN);
+    s.put("units_per_tour", tours > 0 ? (double) tourUnits / tours : Double.NaN);
+    s.put("tour_m_mean", tours > 0 ? tourM / tours : Double.NaN);
+    s.put("tour_s_mean", tours > 0 ? tourTime / tours : Double.NaN);
+    s.put("cart_units", w.cfg.cartUnits);
     s.put("receipt_lines", lines); s.put("receipt_lines_put", put); s.put("put_m_total", putM);
     s.put("recv_buffer_cap", w.recvBufferCapacity());
     s.put("recv_buffer_max", recvBuffer.max()); s.put("recv_buffer_mean", recvBuffer.mean(T));
