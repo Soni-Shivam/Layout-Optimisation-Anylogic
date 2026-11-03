@@ -657,6 +657,9 @@ return liveV;
     fn("utilSoFar", "double", [("int", "k")], "return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;",
        "Utilisation of role k since 06:00 (0 pickers, 1 packers, 2 receivers, 3 putaway).")
 
+    fn("plotValue", "double", [("double", "x")], "return Double.isNaN(x) || Double.isInfinite(x) ? 0 : x;",
+       "Every chart value goes through this: AnyLogic's charts do not handle NaN (no value yet) and the run breaks.")
+
     fn("figValue", "String", [("int", "i")], """
 if (wh == null) return "\\u2013";
 double[] v = liveKpi();
@@ -896,6 +899,7 @@ return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;
         sh.text(COL_C, y, title, size=14, bold=True, col=INK)
         sh.text(COL_C, y + 21, sub, size=10, col=MUTED)
         sh.rect(COL_C, y + 40, COL_C_W, 2, fill=INK, line=None)
+        series = [(t, f"plotValue({e})", c) for t, e, c in series]     # never NaN into a chart
         sh.time_plot(name, COL_C - 14, y + 44, COL_C_W + 14, ch - 44, series, legend=legend, **style)
     # worker dots (on top of the floor map)
     sh.oval(0, 0, 5.5, fill=INKMUTED, line=PAPER3, lw=1.5, name="workerDot", rep=str(MAX_DOTS),

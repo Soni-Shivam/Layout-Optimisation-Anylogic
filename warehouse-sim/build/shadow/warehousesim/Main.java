@@ -565,6 +565,9 @@ return kpi == null || kpi.tourOrders == 0 ? Double.NaN : kpi.tourM / kpi.tourOrd
   double utilSoFar(int k) {
 return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;
   }
+  double plotValue(double x) {
+return Double.isNaN(x) || Double.isInfinite(x) ? 0 : x;
+  }
   String figValue(int i) {
 if (wh == null) return "\u2013";
 double[] v = liveKpi();
@@ -986,23 +989,23 @@ return inboundText();
   }
   // throughput.arrived
   double _snippet80() {
-return nArrived;
+return plotValue(nArrived);
   }
   // throughput.picked
   double _snippet81() {
-return nPicked;
+return plotValue(nPicked);
   }
   // throughput.shipped
   double _snippet82() {
-return nShipped;
+return plotValue(nShipped);
   }
   // walk.walk per order (m)
   double _snippet83() {
-return walkPerOrder();
+return plotValue(walkPerOrder());
   }
   // fulfil.fulfilment (min)
   double _snippet84() {
-return liveKpi()[0];
+return plotValue(liveKpi()[0]);
   }
   // workerDot.XCode
   double _snippet85(int index) {

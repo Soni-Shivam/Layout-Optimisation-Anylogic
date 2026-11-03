@@ -2113,7 +2113,7 @@ public static final class Kpi {
 </Variables>
 <Connectors>
 <Connector>
-<Id>1762300000301</Id>
+<Id>1762300000302</Id>
 <Name><![CDATA[connector0]]></Name>
 <X>50</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2146,7 +2146,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000302</Id>
+<Id>1762300000303</Id>
 <Name><![CDATA[connector1]]></Name>
 <X>140</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2179,7 +2179,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000303</Id>
+<Id>1762300000304</Id>
 <Name><![CDATA[connector2]]></Name>
 <X>230</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2212,7 +2212,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000304</Id>
+<Id>1762300000305</Id>
 <Name><![CDATA[connector3]]></Name>
 <X>230</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2245,7 +2245,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000305</Id>
+<Id>1762300000306</Id>
 <Name><![CDATA[connector4]]></Name>
 <X>275</X><Y>1070</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2278,7 +2278,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000306</Id>
+<Id>1762300000307</Id>
 <Name><![CDATA[connector5]]></Name>
 <X>410</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2311,7 +2311,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000307</Id>
+<Id>1762300000308</Id>
 <Name><![CDATA[connector6]]></Name>
 <X>590</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2344,7 +2344,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000308</Id>
+<Id>1762300000309</Id>
 <Name><![CDATA[connector7]]></Name>
 <X>680</X><Y>1000</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2377,7 +2377,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000309</Id>
+<Id>1762300000310</Id>
 <Name><![CDATA[connector8]]></Name>
 <X>320</X><Y>1110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2410,7 +2410,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000310</Id>
+<Id>1762300000311</Id>
 <Name><![CDATA[connector9]]></Name>
 <X>410</X><Y>1110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2443,7 +2443,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000311</Id>
+<Id>1762300000312</Id>
 <Name><![CDATA[connector10]]></Name>
 <X>500</X><Y>1110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2476,7 +2476,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000312</Id>
+<Id>1762300000313</Id>
 <Name><![CDATA[connector11]]></Name>
 <X>590</X><Y>1110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2509,7 +2509,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000313</Id>
+<Id>1762300000314</Id>
 <Name><![CDATA[connector12]]></Name>
 <X>50</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2542,7 +2542,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000314</Id>
+<Id>1762300000315</Id>
 <Name><![CDATA[connector13]]></Name>
 <X>140</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2575,7 +2575,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000315</Id>
+<Id>1762300000316</Id>
 <Name><![CDATA[connector14]]></Name>
 <X>230</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2608,7 +2608,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000316</Id>
+<Id>1762300000317</Id>
 <Name><![CDATA[connector15]]></Name>
 <X>320</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2641,7 +2641,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000317</Id>
+<Id>1762300000318</Id>
 <Name><![CDATA[connector16]]></Name>
 <X>410</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2674,7 +2674,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000318</Id>
+<Id>1762300000319</Id>
 <Name><![CDATA[connector17]]></Name>
 <X>500</X><Y>1230</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2707,7 +2707,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000319</Id>
+<Id>1762300000320</Id>
 <Name><![CDATA[connector18]]></Name>
 <X>50</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2740,7 +2740,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000320</Id>
+<Id>1762300000321</Id>
 <Name><![CDATA[connector19]]></Name>
 <X>770</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2773,7 +2773,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000321</Id>
+<Id>1762300000322</Id>
 <Name><![CDATA[connector20]]></Name>
 <X>860</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2806,7 +2806,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000322</Id>
+<Id>1762300000323</Id>
 <Name><![CDATA[connector21]]></Name>
 <X>140</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2839,7 +2839,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000323</Id>
+<Id>1762300000324</Id>
 <Name><![CDATA[connector22]]></Name>
 <X>410</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -2872,7 +2872,7 @@ public static final class Kpi {
 </Points>
 </Connector>
 <Connector>
-<Id>1762300000324</Id>
+<Id>1762300000325</Id>
 <Name><![CDATA[connector23]]></Name>
 <X>500</X><Y>1340</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -3809,11 +3809,28 @@ return liveV;]]></Body>
 </Function>
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
-<ReturnType><![CDATA[String]]></ReturnType>
+<ReturnType><![CDATA[double]]></ReturnType>
 <Id>1762300000141</Id>
+<Name><![CDATA[plotValue]]></Name>
+<Description><![CDATA[Every chart value goes through this: AnyLogic's charts do not handle NaN (no value yet) and the run breaks.]]></Description>
+<X>1850</X><Y>790</Y>
+<Label><X>10</X><Y>0</Y></Label>
+<PublicFlag>false</PublicFlag>
+<PresentationFlag>true</PresentationFlag>
+<ShowLabel>true</ShowLabel>
+<Parameter>
+<Name><![CDATA[x]]></Name>
+<Type><![CDATA[double]]></Type>
+</Parameter>
+<Body><![CDATA[return Double.isNaN(x) || Double.isInfinite(x) ? 0 : x;]]></Body>
+</Function>
+<Function AccessType="default" StaticFunction="false">
+<ReturnModificator>RETURNS_VALUE</ReturnModificator>
+<ReturnType><![CDATA[String]]></ReturnType>
+<Id>1762300000142</Id>
 <Name><![CDATA[figValue]]></Name>
 <Description><![CDATA[The three figures layouts are compared on.]]></Description>
-<X>1850</X><Y>790</Y>
+<X>1850</X><Y>812</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3833,9 +3850,9 @@ switch (i) {
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000142</Id>
+<Id>1762300000143</Id>
 <Name><![CDATA[figNote]]></Name>
-<X>1850</X><Y>812</Y>
+<X>1850</X><Y>834</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3855,10 +3872,10 @@ switch (i) {
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[int]]></ReturnType>
-<Id>1762300000143</Id>
+<Id>1762300000144</Id>
 <Name><![CDATA[boardNow]]></Name>
 <Description><![CDATA[Orders at board row i now: held, waiting for a cart, on a cart, packing, staging.]]></Description>
-<X>1850</X><Y>834</Y>
+<X>1850</X><Y>856</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3879,9 +3896,9 @@ switch (i) {
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000144</Id>
+<Id>1762300000145</Id>
 <Name><![CDATA[boardSoFar]]></Name>
-<X>1850</X><Y>856</Y>
+<X>1850</X><Y>878</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3903,9 +3920,9 @@ switch (i) {
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000145</Id>
+<Id>1762300000146</Id>
 <Name><![CDATA[crewText]]></Name>
-<X>1850</X><Y>878</Y>
+<X>1850</X><Y>900</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3921,9 +3938,9 @@ return pools[k].busy() + " of " + staff[k] + " busy";]]></Body>
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[double]]></ReturnType>
-<Id>1762300000146</Id>
+<Id>1762300000147</Id>
 <Name><![CDATA[crewBusyNow]]></Name>
-<X>1850</X><Y>900</Y>
+<X>1850</X><Y>922</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3939,9 +3956,9 @@ return (double) pools[k].busy() / staff[k];]]></Body>
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000147</Id>
+<Id>1762300000148</Id>
 <Name><![CDATA[inboundText]]></Name>
-<X>1850</X><Y>922</Y>
+<X>1850</X><Y>944</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3953,9 +3970,9 @@ return String.format("Receiving buffer holds %d of %d lines.%n%,d units on the s
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[double]]></ReturnType>
-<Id>1762300000148</Id>
+<Id>1762300000149</Id>
 <Name><![CDATA[endD]]></Name>
-<X>1850</X><Y>944</Y>
+<X>1850</X><Y>966</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3970,9 +3987,9 @@ return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;]]></Body>
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000149</Id>
+<Id>1762300000150</Id>
 <Name><![CDATA[endLabel]]></Name>
-<X>1850</X><Y>966</Y>
+<X>1850</X><Y>988</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -3998,10 +4015,10 @@ return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;]]></Body>
 <Function AccessType="default" StaticFunction="false">
 <ReturnModificator>RETURNS_VALUE</ReturnModificator>
 <ReturnType><![CDATA[String]]></ReturnType>
-<Id>1762300000150</Id>
+<Id>1762300000151</Id>
 <Name><![CDATA[endText]]></Name>
 <Description><![CDATA[Value column of the end-of-day panel (and the console table).]]></Description>
-<X>1850</X><Y>988</Y>
+<X>1850</X><Y>1010</Y>
 <Label><X>10</X><Y>0</Y></Label>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
@@ -4049,7 +4066,7 @@ switch (i) {
 </AgentLinks>
 <EmbeddedObjects>
 <EmbeddedObject>
-<Id>1762300000325</Id>
+<Id>1762300000326</Id>
 <Name><![CDATA[orderIn]]></Name>
 <X>40</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4185,7 +4202,7 @@ switch (i) {
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000326</Id>
+<Id>1762300000327</Id>
 <Name><![CDATA[orderArrive]]></Name>
 <X>130</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4295,7 +4312,7 @@ switch (i) {
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000327</Id>
+<Id>1762300000328</Id>
 <Name><![CDATA[stockCheck]]></Name>
 <X>220</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4392,7 +4409,7 @@ switch (i) {
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000328</Id>
+<Id>1762300000329</Id>
 <Name><![CDATA[holdWait]]></Name>
 <X>265</X><Y>1070</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4513,7 +4530,7 @@ switch (i) {
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000329</Id>
+<Id>1762300000330</Id>
 <Name><![CDATA[pickPool]]></Name>
 <X>400</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4638,7 +4655,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000330</Id>
+<Id>1762300000331</Id>
 <Name><![CDATA[pack]]></Name>
 <X>580</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4859,7 +4876,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000331</Id>
+<Id>1762300000332</Id>
 <Name><![CDATA[staging]]></Name>
 <X>670</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -4972,7 +4989,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000332</Id>
+<Id>1762300000333</Id>
 <Name><![CDATA[shipped]]></Name>
 <X>760</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5045,7 +5062,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000333</Id>
+<Id>1762300000334</Id>
 <Name><![CDATA[tourIn]]></Name>
 <X>310</X><Y>1110</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5181,7 +5198,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000334</Id>
+<Id>1762300000335</Id>
 <Name><![CDATA[tourSeize]]></Name>
 <X>400</X><Y>1110</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5413,7 +5430,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000335</Id>
+<Id>1762300000336</Id>
 <Name><![CDATA[tourWalk]]></Name>
 <X>490</X><Y>1110</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5526,7 +5543,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000336</Id>
+<Id>1762300000337</Id>
 <Name><![CDATA[tourRelease]]></Name>
 <X>580</X><Y>1110</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5644,7 +5661,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000337</Id>
+<Id>1762300000338</Id>
 <Name><![CDATA[tourDone]]></Name>
 <X>670</X><Y>1110</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5717,7 +5734,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000338</Id>
+<Id>1762300000339</Id>
 <Name><![CDATA[receiptIn]]></Name>
 <X>40</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5853,7 +5870,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000339</Id>
+<Id>1762300000340</Id>
 <Name><![CDATA[receiptArrive]]></Name>
 <X>130</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -5966,7 +5983,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000340</Id>
+<Id>1762300000341</Id>
 <Name><![CDATA[receive]]></Name>
 <X>220</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6190,7 +6207,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000341</Id>
+<Id>1762300000342</Id>
 <Name><![CDATA[putSeize]]></Name>
 <X>310</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6422,7 +6439,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000342</Id>
+<Id>1762300000343</Id>
 <Name><![CDATA[putWalk]]></Name>
 <X>400</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6535,7 +6552,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000343</Id>
+<Id>1762300000344</Id>
 <Name><![CDATA[putRelease]]></Name>
 <X>490</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6650,7 +6667,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000344</Id>
+<Id>1762300000345</Id>
 <Name><![CDATA[stored]]></Name>
 <X>580</X><Y>1230</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6723,7 +6740,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000345</Id>
+<Id>1762300000346</Id>
 <Name><![CDATA[dayClockIn]]></Name>
 <X>40</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6859,7 +6876,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000346</Id>
+<Id>1762300000347</Id>
 <Name><![CDATA[endOfDay]]></Name>
 <X>130</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -6972,7 +6989,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000347</Id>
+<Id>1762300000348</Id>
 <Name><![CDATA[dayEnd]]></Name>
 <X>220</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7045,7 +7062,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000348</Id>
+<Id>1762300000349</Id>
 <Name><![CDATA[wakeIn]]></Name>
 <X>760</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7181,7 +7198,7 @@ dispatch();]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000349</Id>
+<Id>1762300000350</Id>
 <Name><![CDATA[wakeUp]]></Name>
 <X>850</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7295,7 +7312,7 @@ getEngine().setRealTimeScale(animScale);]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000350</Id>
+<Id>1762300000351</Id>
 <Name><![CDATA[wakeOut]]></Name>
 <X>940</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7368,7 +7385,7 @@ getEngine().setRealTimeScale(animScale);]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000351</Id>
+<Id>1762300000352</Id>
 <Name><![CDATA[tickIn]]></Name>
 <X>400</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7504,7 +7521,7 @@ getEngine().setRealTimeScale(animScale);]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000352</Id>
+<Id>1762300000353</Id>
 <Name><![CDATA[tick]]></Name>
 <X>490</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7618,7 +7635,7 @@ if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000353</Id>
+<Id>1762300000354</Id>
 <Name><![CDATA[tickOut]]></Name>
 <X>580</X><Y>1340</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7691,7 +7708,7 @@ if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000354</Id>
+<Id>1762300000355</Id>
 <Name><![CDATA[pickerPool]]></Name>
 <X>940</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -7754,7 +7771,7 @@ if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());]]></Code>
 <Value Class="EntityCodeValue">
 <IsAgentEntity>true</IsAgentEntity>
 <EntityEmbeddedObject>
-<Id>1762300000151</Id>
+<Id>1762300000152</Id>
 <ActiveObjectClass>
 <PackageName><![CDATA[warehousesim]]></PackageName>
 <ClassName><![CDATA[Worker]]></ClassName>
@@ -8034,7 +8051,7 @@ unit.busyNow = false;]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000355</Id>
+<Id>1762300000356</Id>
 <Name><![CDATA[packerPool]]></Name>
 <X>1030</X><Y>1000</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -8097,7 +8114,7 @@ unit.busyNow = false;]]></Code>
 <Value Class="EntityCodeValue">
 <IsAgentEntity>true</IsAgentEntity>
 <EntityEmbeddedObject>
-<Id>1762300000152</Id>
+<Id>1762300000153</Id>
 <ActiveObjectClass>
 <PackageName><![CDATA[warehousesim]]></PackageName>
 <ClassName><![CDATA[Worker]]></ClassName>
@@ -8377,7 +8394,7 @@ unit.busyNow = false;]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000356</Id>
+<Id>1762300000357</Id>
 <Name><![CDATA[receiverPool]]></Name>
 <X>940</X><Y>1090</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -8440,7 +8457,7 @@ unit.busyNow = false;]]></Code>
 <Value Class="EntityCodeValue">
 <IsAgentEntity>true</IsAgentEntity>
 <EntityEmbeddedObject>
-<Id>1762300000153</Id>
+<Id>1762300000154</Id>
 <ActiveObjectClass>
 <PackageName><![CDATA[warehousesim]]></PackageName>
 <ClassName><![CDATA[Worker]]></ClassName>
@@ -8720,7 +8737,7 @@ unit.busyNow = false;]]></Code>
 </QuantityColumn>
 </EmbeddedObject>
 <EmbeddedObject>
-<Id>1762300000357</Id>
+<Id>1762300000358</Id>
 <Name><![CDATA[putawayPool]]></Name>
 <X>1030</X><Y>1090</Y>
 <Label><X>-10</X><Y>-20</Y></Label>
@@ -8783,7 +8800,7 @@ unit.busyNow = false;]]></Code>
 <Value Class="EntityCodeValue">
 <IsAgentEntity>true</IsAgentEntity>
 <EntityEmbeddedObject>
-<Id>1762300000154</Id>
+<Id>1762300000155</Id>
 <ActiveObjectClass>
 <PackageName><![CDATA[warehousesim]]></PackageName>
 <ClassName><![CDATA[Worker]]></ClassName>
@@ -9077,7 +9094,7 @@ unit.busyNow = false;]]></Code>
 <LevelVisibility>ALWAYS_SHOW</LevelVisibility>
 <Presentation>
 <Rectangle>
-<Id>1762300000155</Id>
+<Id>1762300000156</Id>
 <Name><![CDATA[headerBar]]></Name>
 <X>0</X><Y>0</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9099,7 +9116,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000156</Id>
+<Id>1762300000157</Id>
 <Name><![CDATA[text1]]></Name>
 <X>24</X><Y>10</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9120,7 +9137,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000157</Id>
+<Id>1762300000158</Id>
 <Name><![CDATA[dayInfo]]></Name>
 <X>24</X><Y>36</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9142,7 +9159,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000158</Id>
+<Id>1762300000159</Id>
 <Name><![CDATA[clock]]></Name>
 <X>1386</X><Y>9</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9164,7 +9181,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000159</Id>
+<Id>1762300000160</Id>
 <Name><![CDATA[fastForward]]></Name>
 <X>1270</X><Y>24</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9186,7 +9203,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000160</Id>
+<Id>1762300000161</Id>
 <Name><![CDATA[dayBar]]></Name>
 <X>0</X><Y>57</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9209,7 +9226,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000161</Id>
+<Id>1762300000162</Id>
 <Name><![CDATA[layoutName]]></Name>
 <X>24</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9231,7 +9248,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000162</Id>
+<Id>1762300000163</Id>
 <Name><![CDATA[layoutWords]]></Name>
 <X>24</X><Y>110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9253,7 +9270,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000163</Id>
+<Id>1762300000164</Id>
 <Name><![CDATA[rectangle2]]></Name>
 <X>540</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9275,7 +9292,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000164</Id>
+<Id>1762300000165</Id>
 <Name><![CDATA[text3]]></Name>
 <X>552</X><Y>90</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9296,7 +9313,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000165</Id>
+<Id>1762300000166</Id>
 <Name><![CDATA[fig0]]></Name>
 <X>552</X><Y>110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9318,7 +9335,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000166</Id>
+<Id>1762300000167</Id>
 <Name><![CDATA[text4]]></Name>
 <X>552</X><Y>156</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9340,7 +9357,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000167</Id>
+<Id>1762300000168</Id>
 <Name><![CDATA[rectangle5]]></Name>
 <X>679</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9362,7 +9379,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000168</Id>
+<Id>1762300000169</Id>
 <Name><![CDATA[text6]]></Name>
 <X>692</X><Y>90</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9383,7 +9400,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000169</Id>
+<Id>1762300000170</Id>
 <Name><![CDATA[fig1]]></Name>
 <X>692</X><Y>110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9405,7 +9422,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000170</Id>
+<Id>1762300000171</Id>
 <Name><![CDATA[text7]]></Name>
 <X>692</X><Y>156</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9427,7 +9444,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000171</Id>
+<Id>1762300000172</Id>
 <Name><![CDATA[rectangle8]]></Name>
 <X>819</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9449,7 +9466,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000172</Id>
+<Id>1762300000173</Id>
 <Name><![CDATA[text9]]></Name>
 <X>832</X><Y>90</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9470,7 +9487,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000173</Id>
+<Id>1762300000174</Id>
 <Name><![CDATA[fig2]]></Name>
 <X>832</X><Y>110</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9492,7 +9509,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000174</Id>
+<Id>1762300000175</Id>
 <Name><![CDATA[text10]]></Name>
 <X>832</X><Y>156</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9514,7 +9531,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000175</Id>
+<Id>1762300000176</Id>
 <Name><![CDATA[rectangle11]]></Name>
 <X>540</X><Y>204</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9536,7 +9553,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000176</Id>
+<Id>1762300000177</Id>
 <Name><![CDATA[text12]]></Name>
 <X>556</X><Y>218</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9557,7 +9574,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000177</Id>
+<Id>1762300000178</Id>
 <Name><![CDATA[text13]]></Name>
 <X>944</X><Y>221</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9579,7 +9596,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000178</Id>
+<Id>1762300000179</Id>
 <Name><![CDATA[rectangle14]]></Name>
 <X>556</X><Y>246</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9601,7 +9618,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000179</Id>
+<Id>1762300000180</Id>
 <Name><![CDATA[text15]]></Name>
 <X>556</X><Y>256</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9622,7 +9639,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000180</Id>
+<Id>1762300000181</Id>
 <Name><![CDATA[text16]]></Name>
 <X>802</X><Y>256</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9643,7 +9660,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000181</Id>
+<Id>1762300000182</Id>
 <Name><![CDATA[text17]]></Name>
 <X>944</X><Y>256</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9664,7 +9681,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000182</Id>
+<Id>1762300000183</Id>
 <Name><![CDATA[rectangle18]]></Name>
 <X>542</X><Y>278</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9687,7 +9704,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000183</Id>
+<Id>1762300000184</Id>
 <Name><![CDATA[text19]]></Name>
 <X>556</X><Y>291</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9709,7 +9726,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000184</Id>
+<Id>1762300000185</Id>
 <Name><![CDATA[text20]]></Name>
 <X>802</X><Y>285</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9732,7 +9749,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000185</Id>
+<Id>1762300000186</Id>
 <Name><![CDATA[text21]]></Name>
 <X>944</X><Y>292</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9755,7 +9772,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000186</Id>
+<Id>1762300000187</Id>
 <Name><![CDATA[rectangle22]]></Name>
 <X>556</X><Y>320</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9777,7 +9794,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000187</Id>
+<Id>1762300000188</Id>
 <Name><![CDATA[text23]]></Name>
 <X>556</X><Y>333</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9798,7 +9815,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000188</Id>
+<Id>1762300000189</Id>
 <Name><![CDATA[text24]]></Name>
 <X>802</X><Y>327</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9820,7 +9837,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000189</Id>
+<Id>1762300000190</Id>
 <Name><![CDATA[text25]]></Name>
 <X>944</X><Y>334</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9842,7 +9859,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000190</Id>
+<Id>1762300000191</Id>
 <Name><![CDATA[rectangle26]]></Name>
 <X>556</X><Y>362</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9864,7 +9881,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000191</Id>
+<Id>1762300000192</Id>
 <Name><![CDATA[text27]]></Name>
 <X>556</X><Y>375</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9885,7 +9902,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000192</Id>
+<Id>1762300000193</Id>
 <Name><![CDATA[text28]]></Name>
 <X>802</X><Y>369</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9907,7 +9924,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000193</Id>
+<Id>1762300000194</Id>
 <Name><![CDATA[text29]]></Name>
 <X>944</X><Y>376</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9929,7 +9946,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000194</Id>
+<Id>1762300000195</Id>
 <Name><![CDATA[rectangle30]]></Name>
 <X>556</X><Y>404</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9951,7 +9968,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000195</Id>
+<Id>1762300000196</Id>
 <Name><![CDATA[text31]]></Name>
 <X>556</X><Y>417</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9972,7 +9989,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000196</Id>
+<Id>1762300000197</Id>
 <Name><![CDATA[text32]]></Name>
 <X>802</X><Y>411</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -9994,7 +10011,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000197</Id>
+<Id>1762300000198</Id>
 <Name><![CDATA[text33]]></Name>
 <X>944</X><Y>418</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10016,7 +10033,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000198</Id>
+<Id>1762300000199</Id>
 <Name><![CDATA[rectangle34]]></Name>
 <X>556</X><Y>446</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10038,7 +10055,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000199</Id>
+<Id>1762300000200</Id>
 <Name><![CDATA[text35]]></Name>
 <X>556</X><Y>459</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10059,7 +10076,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000200</Id>
+<Id>1762300000201</Id>
 <Name><![CDATA[text36]]></Name>
 <X>802</X><Y>453</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10081,7 +10098,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000201</Id>
+<Id>1762300000202</Id>
 <Name><![CDATA[text37]]></Name>
 <X>944</X><Y>460</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10103,7 +10120,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000202</Id>
+<Id>1762300000203</Id>
 <Name><![CDATA[text38]]></Name>
 <X>540</X><Y>520</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10124,7 +10141,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000203</Id>
+<Id>1762300000204</Id>
 <Name><![CDATA[rectangle39]]></Name>
 <X>540</X><Y>544</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10146,7 +10163,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000204</Id>
+<Id>1762300000205</Id>
 <Name><![CDATA[text40]]></Name>
 <X>540</X><Y>558</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10167,7 +10184,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000205</Id>
+<Id>1762300000206</Id>
 <Name><![CDATA[text41]]></Name>
 <X>644</X><Y>560</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10189,7 +10206,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000206</Id>
+<Id>1762300000207</Id>
 <Name><![CDATA[text42]]></Name>
 <X>960</X><Y>558</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10211,7 +10228,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000207</Id>
+<Id>1762300000208</Id>
 <Name><![CDATA[rectangle43]]></Name>
 <X>540</X><Y>578</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10233,7 +10250,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Rectangle>
-<Id>1762300000208</Id>
+<Id>1762300000209</Id>
 <Name><![CDATA[rectangle44]]></Name>
 <X>540</X><Y>578</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10256,7 +10273,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000209</Id>
+<Id>1762300000210</Id>
 <Name><![CDATA[text45]]></Name>
 <X>540</X><Y>598</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10277,7 +10294,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000210</Id>
+<Id>1762300000211</Id>
 <Name><![CDATA[text46]]></Name>
 <X>644</X><Y>600</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10299,7 +10316,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000211</Id>
+<Id>1762300000212</Id>
 <Name><![CDATA[text47]]></Name>
 <X>960</X><Y>598</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10321,7 +10338,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000212</Id>
+<Id>1762300000213</Id>
 <Name><![CDATA[rectangle48]]></Name>
 <X>540</X><Y>618</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10343,7 +10360,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Rectangle>
-<Id>1762300000213</Id>
+<Id>1762300000214</Id>
 <Name><![CDATA[rectangle49]]></Name>
 <X>540</X><Y>618</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10366,7 +10383,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000214</Id>
+<Id>1762300000215</Id>
 <Name><![CDATA[text50]]></Name>
 <X>540</X><Y>638</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10387,7 +10404,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000215</Id>
+<Id>1762300000216</Id>
 <Name><![CDATA[text51]]></Name>
 <X>644</X><Y>640</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10409,7 +10426,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000216</Id>
+<Id>1762300000217</Id>
 <Name><![CDATA[text52]]></Name>
 <X>960</X><Y>638</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10431,7 +10448,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000217</Id>
+<Id>1762300000218</Id>
 <Name><![CDATA[rectangle53]]></Name>
 <X>540</X><Y>658</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10453,7 +10470,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Rectangle>
-<Id>1762300000218</Id>
+<Id>1762300000219</Id>
 <Name><![CDATA[rectangle54]]></Name>
 <X>540</X><Y>658</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10476,7 +10493,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000219</Id>
+<Id>1762300000220</Id>
 <Name><![CDATA[text55]]></Name>
 <X>540</X><Y>678</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10497,7 +10514,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000220</Id>
+<Id>1762300000221</Id>
 <Name><![CDATA[text56]]></Name>
 <X>644</X><Y>680</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10519,7 +10536,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000221</Id>
+<Id>1762300000222</Id>
 <Name><![CDATA[text57]]></Name>
 <X>960</X><Y>678</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10541,7 +10558,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000222</Id>
+<Id>1762300000223</Id>
 <Name><![CDATA[rectangle58]]></Name>
 <X>540</X><Y>698</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10563,7 +10580,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Rectangle>
-<Id>1762300000223</Id>
+<Id>1762300000224</Id>
 <Name><![CDATA[rectangle59]]></Name>
 <X>540</X><Y>698</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10586,7 +10603,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000224</Id>
+<Id>1762300000225</Id>
 <Name><![CDATA[text60]]></Name>
 <X>540</X><Y>722</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10608,7 +10625,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000225</Id>
+<Id>1762300000226</Id>
 <Name><![CDATA[text61]]></Name>
 <X>990</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10629,7 +10646,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000226</Id>
+<Id>1762300000227</Id>
 <Name><![CDATA[text62]]></Name>
 <X>990</X><Y>101</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10650,7 +10667,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000227</Id>
+<Id>1762300000228</Id>
 <Name><![CDATA[rectangle63]]></Name>
 <X>990</X><Y>120</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10672,7 +10689,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <TimePlot>
-<Id>1762300000231</Id>
+<Id>1762300000232</Id>
 <Name><![CDATA[throughput]]></Name>
 <X>976</X><Y>124</Y>
 <Label><X>0</X><Y>-10</Y></Label>
@@ -10682,7 +10699,7 @@ unit.busyNow = false;]]></Code>
 <DrawMode>SHAPE_DRAW_2D3D</DrawMode>
 <AutoUpdate>true</AutoUpdate>
 <RecurrenceProperties>
-<Id>1762300000232</Id>
+<Id>1762300000233</Id>
 <OccurrenceAtTime>true</OccurrenceAtTime>
 <OccurrenceDate>1759708800000</OccurrenceDate>
 <OccurrenceTime Class="CodeUnitValue">
@@ -10728,30 +10745,30 @@ unit.busyNow = false;]]></Code>
 <Interpolation>LINEAR</Interpolation>
 <DatasetExpression>
 <Title><![CDATA[arrived]]></Title>
-<Id>1762300000228</Id>
+<Id>1762300000229</Id>
 <Expression><![CDATA[_ds_throughput0]]></Expression>
 <Color>-6643802</Color>
-<Expression2><![CDATA[nArrived]]></Expression2>
+<Expression2><![CDATA[plotValue(nArrived)]]></Expression2>
 <Expression2Flag>true</Expression2Flag>
 <PointStyle>NONE</PointStyle>
 <LineWidth>2.0</LineWidth>
 </DatasetExpression>
 <DatasetExpression>
 <Title><![CDATA[picked]]></Title>
-<Id>1762300000229</Id>
+<Id>1762300000230</Id>
 <Expression><![CDATA[_ds_throughput1]]></Expression>
 <Color>-14144718</Color>
-<Expression2><![CDATA[nPicked]]></Expression2>
+<Expression2><![CDATA[plotValue(nPicked)]]></Expression2>
 <Expression2Flag>true</Expression2Flag>
 <PointStyle>NONE</PointStyle>
 <LineWidth>2.0</LineWidth>
 </DatasetExpression>
 <DatasetExpression>
 <Title><![CDATA[shipped]]></Title>
-<Id>1762300000230</Id>
+<Id>1762300000231</Id>
 <Expression><![CDATA[_ds_throughput2]]></Expression>
 <Color>-14658079</Color>
-<Expression2><![CDATA[nShipped]]></Expression2>
+<Expression2><![CDATA[plotValue(nShipped)]]></Expression2>
 <Expression2Flag>true</Expression2Flag>
 <PointStyle>NONE</PointStyle>
 <LineWidth>2.0</LineWidth>
@@ -10762,7 +10779,7 @@ unit.busyNow = false;]]></Code>
 <LabelFormat>MODEL_DATE_TIME_ONLY</LabelFormat>
 </TimePlot>
 <Text>
-<Id>1762300000233</Id>
+<Id>1762300000234</Id>
 <Name><![CDATA[text64]]></Name>
 <X>990</X><Y>350</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10783,7 +10800,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000234</Id>
+<Id>1762300000235</Id>
 <Name><![CDATA[text65]]></Name>
 <X>990</X><Y>371</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10804,7 +10821,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000235</Id>
+<Id>1762300000236</Id>
 <Name><![CDATA[rectangle66]]></Name>
 <X>990</X><Y>390</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10826,7 +10843,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <TimePlot>
-<Id>1762300000237</Id>
+<Id>1762300000238</Id>
 <Name><![CDATA[walk]]></Name>
 <X>976</X><Y>394</Y>
 <Label><X>0</X><Y>-10</Y></Label>
@@ -10836,7 +10853,7 @@ unit.busyNow = false;]]></Code>
 <DrawMode>SHAPE_DRAW_2D3D</DrawMode>
 <AutoUpdate>true</AutoUpdate>
 <RecurrenceProperties>
-<Id>1762300000238</Id>
+<Id>1762300000239</Id>
 <OccurrenceAtTime>true</OccurrenceAtTime>
 <OccurrenceDate>1759708800000</OccurrenceDate>
 <OccurrenceTime Class="CodeUnitValue">
@@ -10882,10 +10899,10 @@ unit.busyNow = false;]]></Code>
 <Interpolation>LINEAR</Interpolation>
 <DatasetExpression>
 <Title><![CDATA[walk per order (m)]]></Title>
-<Id>1762300000236</Id>
+<Id>1762300000237</Id>
 <Expression><![CDATA[_ds_walk0]]></Expression>
 <Color>-14658079</Color>
-<Expression2><![CDATA[walkPerOrder()]]></Expression2>
+<Expression2><![CDATA[plotValue(walkPerOrder())]]></Expression2>
 <Expression2Flag>true</Expression2Flag>
 <PointStyle>NONE</PointStyle>
 <LineWidth>2.0</LineWidth>
@@ -10896,7 +10913,7 @@ unit.busyNow = false;]]></Code>
 <LabelFormat>MODEL_DATE_TIME_ONLY</LabelFormat>
 </TimePlot>
 <Text>
-<Id>1762300000239</Id>
+<Id>1762300000240</Id>
 <Name><![CDATA[text67]]></Name>
 <X>990</X><Y>616</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10917,7 +10934,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000240</Id>
+<Id>1762300000241</Id>
 <Name><![CDATA[text68]]></Name>
 <X>990</X><Y>637</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10938,7 +10955,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000241</Id>
+<Id>1762300000242</Id>
 <Name><![CDATA[rectangle69]]></Name>
 <X>990</X><Y>656</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -10960,7 +10977,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <TimePlot>
-<Id>1762300000243</Id>
+<Id>1762300000244</Id>
 <Name><![CDATA[fulfil]]></Name>
 <X>976</X><Y>660</Y>
 <Label><X>0</X><Y>-10</Y></Label>
@@ -10970,7 +10987,7 @@ unit.busyNow = false;]]></Code>
 <DrawMode>SHAPE_DRAW_2D3D</DrawMode>
 <AutoUpdate>true</AutoUpdate>
 <RecurrenceProperties>
-<Id>1762300000244</Id>
+<Id>1762300000245</Id>
 <OccurrenceAtTime>true</OccurrenceAtTime>
 <OccurrenceDate>1759708800000</OccurrenceDate>
 <OccurrenceTime Class="CodeUnitValue">
@@ -11016,10 +11033,10 @@ unit.busyNow = false;]]></Code>
 <Interpolation>LINEAR</Interpolation>
 <DatasetExpression>
 <Title><![CDATA[fulfilment (min)]]></Title>
-<Id>1762300000242</Id>
+<Id>1762300000243</Id>
 <Expression><![CDATA[_ds_fulfil0]]></Expression>
 <Color>-14658079</Color>
-<Expression2><![CDATA[liveKpi()[0]]]></Expression2>
+<Expression2><![CDATA[plotValue(liveKpi()[0])]]></Expression2>
 <Expression2Flag>true</Expression2Flag>
 <PointStyle>NONE</PointStyle>
 <LineWidth>2.0</LineWidth>
@@ -11030,7 +11047,7 @@ unit.busyNow = false;]]></Code>
 <LabelFormat>MODEL_DATE_TIME_ONLY</LabelFormat>
 </TimePlot>
 <Oval>
-<Id>1762300000245</Id>
+<Id>1762300000246</Id>
 <Name><![CDATA[workerDot]]></Name>
 <X>0</X><Y>0</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11059,7 +11076,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Oval>
 <Rectangle>
-<Id>1762300000246</Id>
+<Id>1762300000247</Id>
 <Name><![CDATA[rectangle70]]></Name>
 <X>540</X><Y>80</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11082,7 +11099,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000247</Id>
+<Id>1762300000248</Id>
 <Name><![CDATA[text71]]></Name>
 <X>572</X><Y>108</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11104,7 +11121,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000248</Id>
+<Id>1762300000249</Id>
 <Name><![CDATA[text72]]></Name>
 <X>572</X><Y>144</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11127,7 +11144,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000249</Id>
+<Id>1762300000250</Id>
 <Name><![CDATA[text73]]></Name>
 <X>572</X><Y>162</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11150,7 +11167,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000250</Id>
+<Id>1762300000251</Id>
 <Name><![CDATA[rectangle74]]></Name>
 <X>572</X><Y>192</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11173,7 +11190,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000251</Id>
+<Id>1762300000252</Id>
 <Name><![CDATA[text75]]></Name>
 <X>572</X><Y>211</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11196,7 +11213,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000252</Id>
+<Id>1762300000253</Id>
 <Name><![CDATA[text76]]></Name>
 <X>1212</X><Y>210</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11219,7 +11236,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000253</Id>
+<Id>1762300000254</Id>
 <Name><![CDATA[rectangle77]]></Name>
 <X>572</X><Y>238</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11242,7 +11259,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000254</Id>
+<Id>1762300000255</Id>
 <Name><![CDATA[text78]]></Name>
 <X>572</X><Y>249</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11265,7 +11282,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000255</Id>
+<Id>1762300000256</Id>
 <Name><![CDATA[text79]]></Name>
 <X>1212</X><Y>248</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11288,7 +11305,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000256</Id>
+<Id>1762300000257</Id>
 <Name><![CDATA[rectangle80]]></Name>
 <X>572</X><Y>276</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11311,7 +11328,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000257</Id>
+<Id>1762300000258</Id>
 <Name><![CDATA[text81]]></Name>
 <X>572</X><Y>287</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11334,7 +11351,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000258</Id>
+<Id>1762300000259</Id>
 <Name><![CDATA[text82]]></Name>
 <X>1212</X><Y>286</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11357,7 +11374,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000259</Id>
+<Id>1762300000260</Id>
 <Name><![CDATA[rectangle83]]></Name>
 <X>572</X><Y>314</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11380,7 +11397,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000260</Id>
+<Id>1762300000261</Id>
 <Name><![CDATA[text84]]></Name>
 <X>572</X><Y>325</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11403,7 +11420,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000261</Id>
+<Id>1762300000262</Id>
 <Name><![CDATA[text85]]></Name>
 <X>1212</X><Y>324</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11426,7 +11443,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000262</Id>
+<Id>1762300000263</Id>
 <Name><![CDATA[rectangle86]]></Name>
 <X>572</X><Y>352</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11449,7 +11466,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000263</Id>
+<Id>1762300000264</Id>
 <Name><![CDATA[text87]]></Name>
 <X>572</X><Y>363</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11472,7 +11489,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000264</Id>
+<Id>1762300000265</Id>
 <Name><![CDATA[text88]]></Name>
 <X>1212</X><Y>362</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11495,7 +11512,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000265</Id>
+<Id>1762300000266</Id>
 <Name><![CDATA[rectangle89]]></Name>
 <X>572</X><Y>390</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11518,7 +11535,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000266</Id>
+<Id>1762300000267</Id>
 <Name><![CDATA[text90]]></Name>
 <X>572</X><Y>401</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11541,7 +11558,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000267</Id>
+<Id>1762300000268</Id>
 <Name><![CDATA[text91]]></Name>
 <X>1212</X><Y>400</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11564,7 +11581,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000268</Id>
+<Id>1762300000269</Id>
 <Name><![CDATA[rectangle92]]></Name>
 <X>572</X><Y>428</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11587,7 +11604,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000269</Id>
+<Id>1762300000270</Id>
 <Name><![CDATA[text93]]></Name>
 <X>572</X><Y>439</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11610,7 +11627,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000270</Id>
+<Id>1762300000271</Id>
 <Name><![CDATA[text94]]></Name>
 <X>1212</X><Y>438</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11633,7 +11650,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000271</Id>
+<Id>1762300000272</Id>
 <Name><![CDATA[rectangle95]]></Name>
 <X>572</X><Y>466</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11656,7 +11673,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000272</Id>
+<Id>1762300000273</Id>
 <Name><![CDATA[text96]]></Name>
 <X>572</X><Y>477</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11679,7 +11696,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000273</Id>
+<Id>1762300000274</Id>
 <Name><![CDATA[text97]]></Name>
 <X>1212</X><Y>476</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11702,7 +11719,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000274</Id>
+<Id>1762300000275</Id>
 <Name><![CDATA[rectangle98]]></Name>
 <X>572</X><Y>504</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11725,7 +11742,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000275</Id>
+<Id>1762300000276</Id>
 <Name><![CDATA[text99]]></Name>
 <X>572</X><Y>515</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11748,7 +11765,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000276</Id>
+<Id>1762300000277</Id>
 <Name><![CDATA[text100]]></Name>
 <X>1212</X><Y>514</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11771,7 +11788,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Rectangle>
-<Id>1762300000277</Id>
+<Id>1762300000278</Id>
 <Name><![CDATA[rectangle101]]></Name>
 <X>572</X><Y>542</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11794,7 +11811,7 @@ unit.busyNow = false;]]></Code>
 <FillMaterial>null</FillMaterial>
 </Rectangle>
 <Text>
-<Id>1762300000278</Id>
+<Id>1762300000279</Id>
 <Name><![CDATA[text102]]></Name>
 <X>572</X><Y>553</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11817,7 +11834,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000279</Id>
+<Id>1762300000280</Id>
 <Name><![CDATA[text103]]></Name>
 <X>1212</X><Y>552</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11840,7 +11857,7 @@ unit.busyNow = false;]]></Code>
 <Alignment>RIGHT</Alignment>
 </Text>
 <Text>
-<Id>1762300000280</Id>
+<Id>1762300000281</Id>
 <Name><![CDATA[text104]]></Name>
 <X>572</X><Y>608</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11863,7 +11880,7 @@ layout and run the same day again.]]></Text>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000281</Id>
+<Id>1762300000282</Id>
 <Name><![CDATA[text105]]></Name>
 <X>20</X><Y>948</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -11884,7 +11901,7 @@ layout and run the same day again.]]></Text>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000282</Id>
+<Id>1762300000283</Id>
 <Name><![CDATA[text106]]></Name>
 <X>20</X><Y>970</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -12965,7 +12982,7 @@ layout and run the same day again.]]></Text>
 </RunConfiguration>
 <Experiments>
 <SimulationExperiment ActiveObjectClassId="1762300000002">
-<Id>1762300000283</Id>
+<Id>1762300000284</Id>
 <Name><![CDATA[Simulation]]></Name>
 <CommandLineArguments><![CDATA[]]></CommandLineArguments>
 <MaximumMemory>1024</MaximumMemory>
@@ -12977,7 +12994,7 @@ layout and run the same day again.]]></Text>
 <LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 <Presentation>
 <Text>
-<Id>1762300000284</Id>
+<Id>1762300000285</Id>
 <Name><![CDATA[title]]></Name>
 <X>40</X><Y>30</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13018,7 +13035,7 @@ layout and run the same day again.]]></Text>
 <BypassInitialScreen>true</BypassInitialScreen>
 </SimulationExperiment>
 <ParamVariationExperiment ActiveObjectClassId="1762300000002">
-<Id>1762300000286</Id>
+<Id>1762300000287</Id>
 <Name><![CDATA[CompareLayouts]]></Name>
 <Description><![CDATA[Every design in data/layouts/index.txt x synthetic days 1-10 (layoutIndex x seed, common random numbers). Results: results/runs.csv.]]></Description>
 <CommandLineArguments><![CDATA[]]></CommandLineArguments>
@@ -13033,7 +13050,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 <LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 <Variables>
 <Variable Class="PlainVariable">
-<Id>1762300000285</Id>
+<Id>1762300000286</Id>
 <Name><![CDATA[runs]]></Name>
 <X>40</X><Y>300</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13050,7 +13067,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 </Variables>
 <Presentation>
 <Text>
-<Id>1762300000287</Id>
+<Id>1762300000288</Id>
 <Name><![CDATA[title]]></Name>
 <X>40</X><Y>30</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13071,7 +13088,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000288</Id>
+<Id>1762300000289</Id>
 <Name><![CDATA[progress]]></Name>
 <X>40</X><Y>70</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13153,7 +13170,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 </ReplicationsProperties>
 </ParamVariationExperiment>
 <ParamVariationExperiment ActiveObjectClassId="1762300000002">
-<Id>1762300000290</Id>
+<Id>1762300000291</Id>
 <Name><![CDATA[ValidateRealDays]]></Name>
 <Description><![CDATA[The as-is layout on the 10 replayed historical days (data/scenarios/real_index.txt). Results: results/runs.csv.]]></Description>
 <CommandLineArguments><![CDATA[]]></CommandLineArguments>
@@ -13168,7 +13185,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 <LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 <Variables>
 <Variable Class="PlainVariable">
-<Id>1762300000289</Id>
+<Id>1762300000290</Id>
 <Name><![CDATA[runs]]></Name>
 <X>40</X><Y>300</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13185,7 +13202,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 </Variables>
 <Presentation>
 <Text>
-<Id>1762300000291</Id>
+<Id>1762300000292</Id>
 <Name><![CDATA[title]]></Name>
 <X>40</X><Y>30</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13206,7 +13223,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000292</Id>
+<Id>1762300000293</Id>
 <Name><![CDATA[progress]]></Name>
 <X>40</X><Y>70</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13272,7 +13289,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 </ReplicationsProperties>
 </ParamVariationExperiment>
 <ParamVariationExperiment ActiveObjectClassId="1762300000002">
-<Id>1762300000294</Id>
+<Id>1762300000295</Id>
 <Name><![CDATA[StaffPickers]]></Name>
 <Description><![CDATA[Pickers 2..8 x synthetic days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Description>
 <CommandLineArguments><![CDATA[]]></CommandLineArguments>
@@ -13287,7 +13304,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 <LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 <Variables>
 <Variable Class="PlainVariable">
-<Id>1762300000293</Id>
+<Id>1762300000294</Id>
 <Name><![CDATA[runs]]></Name>
 <X>40</X><Y>300</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13304,7 +13321,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 </Variables>
 <Presentation>
 <Text>
-<Id>1762300000295</Id>
+<Id>1762300000296</Id>
 <Name><![CDATA[title]]></Name>
 <X>40</X><Y>30</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13325,7 +13342,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000296</Id>
+<Id>1762300000297</Id>
 <Name><![CDATA[progress]]></Name>
 <X>40</X><Y>70</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13407,7 +13424,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 </ReplicationsProperties>
 </ParamVariationExperiment>
 <ParamVariationExperiment ActiveObjectClassId="1762300000002">
-<Id>1762300000298</Id>
+<Id>1762300000299</Id>
 <Name><![CDATA[CartSize]]></Name>
 <Description><![CDATA[Cart size 0 (single-order picking), 12, 24, 36 units x days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Description>
 <CommandLineArguments><![CDATA[]]></CommandLineArguments>
@@ -13422,7 +13439,7 @@ traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
 <LoadRootFromSnapshot>false</LoadRootFromSnapshot>
 <Variables>
 <Variable Class="PlainVariable">
-<Id>1762300000297</Id>
+<Id>1762300000298</Id>
 <Name><![CDATA[runs]]></Name>
 <X>40</X><Y>300</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13439,7 +13456,7 @@ traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
 </Variables>
 <Presentation>
 <Text>
-<Id>1762300000299</Id>
+<Id>1762300000300</Id>
 <Name><![CDATA[title]]></Name>
 <X>40</X><Y>30</Y>
 <Label><X>10</X><Y>0</Y></Label>
@@ -13460,7 +13477,7 @@ traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
 <Alignment>LEFT</Alignment>
 </Text>
 <Text>
-<Id>1762300000300</Id>
+<Id>1762300000301</Id>
 <Name><![CDATA[progress]]></Name>
 <X>40</X><Y>70</Y>
 <Label><X>10</X><Y>0</Y></Label>
