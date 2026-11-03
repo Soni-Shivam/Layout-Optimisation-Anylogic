@@ -84,8 +84,8 @@ public class Main extends Agent {
   public String layoutPath = "";
   public String scenarioPath = "";
   public double px = 10;
-  public double ox = 34;
-  public double oy = 216;
+  public double ox = 32;
+  public double oy = 176;
   public int nArrived = 0;
   public int nPicked = 0;
   public int nPacked = 0;
@@ -319,16 +319,16 @@ finishSimulation();
   }
   Color cellColor(String t) {
 switch (t) {
-	case "#": return new Color(55, 71, 79);
-	case "A": return new Color(236, 239, 241);
-	case "S": return new Color(161, 136, 127);
-	case "DI": return new Color(46, 125, 50);
-	case "DO": return new Color(21, 101, 192);
-	case "R": return new Color(255, 224, 130);
-	case "PK": return new Color(255, 152, 0);
-	case "G": return new Color(179, 157, 219);
-	case "H": return new Color(0, 137, 123);
-	default: return Color.WHITE;
+	case "#": return new Color(0x0A0D13);                     // wall
+	case "A": return new Color(0xFBFEFF);                  // aisle
+	case "S": return new Color(0xA7ADB6);       // shelf
+	case "DI": return new Color(0x282B32);                   // inbound dock
+	case "DO": return new Color(0x282B32);                   // outbound dock
+	case "R": return new Color(0xF6DC97);       // receiving
+	case "PK": return new Color(0xF4B522);                  // packing station
+	case "G": return new Color(0xC3CFF3);       // staging
+	case "H": return new Color(0x2055E1);                  // picker depot
+	default: return new Color(0xFBFEFF);
 }
   }
   double sx(double x) {
@@ -350,69 +350,68 @@ try {
 	traceln("chart clock labels: start date kept (" + e.getMessage() + ")");
 }
 LayoutData L = wh.layout;
-px = Math.min(890.0 / L.widthM(), 640.0 / L.heightM());
+// the floor map fills its column: the frame is 684.0 tall, the key takes 150.0 on its right
+px = Math.min((476.0 - 16 - 18 - 150.0) / L.widthM(), (684.0 - 16) / L.heightM());
 double W = L.widthM() * px, H = L.heightM() * px;
 double cw = L.cellW * px, ch = L.cellH * px;
 int k = 0;                                 // insert at the bottom so the dashboard and the worker dots stay on top
-// page background and the floor card (the card fits the layout picture + its key)
-presentation.insert(k++, box(0, 0, 1410, 930, new Color(0xF3F5F8), null, 0));
-presentation.insert(k++, box(20, 164 + 2, W + 28, H + 124, new Color(0xE6E9EE), null, 10));
-presentation.insert(k++, box(20, 164, W + 28, H + 124, new Color(0xFFFFFF), new Color(0xE2E6EC), 10));
-presentation.insert(k++, label(ox, 164 + 10, "Warehouse floor", new Color(0x1F2937), 14, true));
-presentation.insert(k++, label(ox, 164 + 30, String.format("%d x %d cells of %.2f x %.2f m  \u00b7  %d storage slots  \u00b7  layout %s",
-	L.cols, L.rows, L.cellW, L.cellH, L.slotId.length, L.id), new Color(0x6B7280), 10, false));
+presentation.insert(k++, box(0, 0, 1410, 880, new Color(0xEDF0F4), null, 0));
+presentation.insert(k++, box(24, 168, W + 16, H + 16, new Color(0xFBFEFF), new Color(0x0A0D13), 2));
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
 		s.setPos(sx(L.originX + q * L.cellW), sy(L.originY + (r + 1) * L.cellH));
 		s.setSize(cw, ch);
 		s.setFillColor(cellColor(L.grid[r][q]));
-		s.setLineColor(new Color(255, 255, 255));
+		s.setLineColor(new Color(0xFBFEFF));
 		s.setLineWidth(0.5);
 		presentation.insert(k++, s);
 	}
 }
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
-	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, Color.WHITE, 8, true);
+	boolean dark = f.type.equals("DI") || f.type.equals("DO") || f.type.equals("H");
+	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, dark ? new Color(0xFBFEFF) : new Color(0x0A0D13), 8, true);
 	t.setAlignment(ALIGNMENT_CENTER);
 	presentation.insert(k++, t);
 }
-// key: what the cell colours and the worker dots mean
-String[] cell = {"A", "S", "#", "DI", "R", "PK", "G", "DO", "H"};
-String[] cellName = {"aisle", "shelf", "wall", "inbound dock", "receiving", "packing station", "staging", "outbound dock", "picker depot"};
-double y = oy + H + 14, x = ox;
-presentation.insert(k++, label(x, y - 1, "Floor", new Color(0x6B7280), 10, true));
-x += 48;
+// key, right of the map: what the cell colours and the worker dots mean
+String[] cell = {"A", "S", "#", "R", "PK", "G", "DI", "H"};
+String[] cellName = {"aisle", "shelf", "wall", "receiving", "packing station", "staging", "dock", "picker depot"};
+double x = 24 + W + 16 + 18, y = 168;
+presentation.insert(k++, label(x, y, "Floor", new Color(0x0A0D13), 12, true));
+y += 24;
 for (int i = 0; i < cell.length; i++) {
-	presentation.insert(k++, box(x, y, 11, 11, cellColor(cell[i]), new Color(0xCFD6DE), 2));
-	presentation.insert(k++, label(x + 16, y - 1, cellName[i], new Color(0x1F2937), 10, false));
-	x += 16 + 5.6 * cellName[i].length() + 18;
+	presentation.insert(k++, box(x, y + 1, 12, 12, cellColor(cell[i]), new Color(0x0A0D13), 1));
+	presentation.insert(k++, label(x + 20, y, cellName[i], new Color(0x282B32), 11, false));
+	y += 20;
 }
-y += 22; x = ox;
-presentation.insert(k++, label(x, y - 1, "Workers", new Color(0x6B7280), 10, true));
-x += 48;
-String[] who = {"picker", "packer", "receiver", "putaway", "idle (any role)"};
+y += 16;
+presentation.insert(k++, label(x, y, "Workers", new Color(0x0A0D13), 12, true));
+y += 24;
+String[] who = {"picker", "packer", "receiver", "putaway", "idle"};
 for (int i = 0; i < who.length; i++) {
 	ShapeOval o = new ShapeOval();
-	o.setPos(x + 5.5, y + 5.5);
+	o.setPos(x + 6, y + 7);
 	o.setRadius(5.5);
-	o.setFillColor(i < 4 ? roleColor(i) : new Color(0x9E9E9E));
-	o.setLineColor(Color.WHITE);
+	o.setFillColor(i < 4 ? roleColor(i) : new Color(0x9A9FA6));
+	o.setLineColor(new Color(0xFBFEFF));
 	o.setLineWidth(1.5);
 	presentation.insert(k++, o);
-	presentation.insert(k++, label(x + 16, y - 1, who[i], new Color(0x1F2937), 10, false));
-	x += 16 + 5.6 * who[i].length() + 18;
+	presentation.insert(k++, label(x + 20, y, who[i], new Color(0x282B32), 11, false));
+	y += 20;
 }
+y += 16;
+presentation.insert(k++, label(x, y, L.cols + " x " + L.rows + " cells\n" + String.format("%.2f x %.2f m each", L.cellW, L.cellH)
+	+ "\n" + L.slotId.length + " slots", new Color(0x565B64), 10, false));
   }
-  ShapeRoundedRectangle box(double x, double y, double w, double h, Color fill, Color line, double radius) {
-ShapeRoundedRectangle s = new ShapeRoundedRectangle();
+  ShapeRectangle box(double x, double y, double w, double h, Color fill, Color line, double lw) {
+ShapeRectangle s = new ShapeRectangle();
 s.setPos(x, y);
 s.setSize(w, h);
-s.setRadius(radius);
 s.setFillColor(fill);
 s.setLineColor(line);
-s.setLineWidth(line == null ? 0 : 1);
+s.setLineWidth(line == null ? 0 : lw);
 return s;
   }
   ShapeText label(double x, double y, String text, Color c, int size, boolean bold) {
@@ -424,8 +423,20 @@ t.setFont(new Font(uiFont, bold ? Font.BOLD : Font.PLAIN, size));
 return t;
   }
   void pickFont() {
-// one typeface for the whole screen: the first of these that is installed (Linux and Windows have different ones)
-String[] want = {"Roboto", "Segoe UI", "Lato", "Open Sans", "Noto Sans", "Helvetica Neue", "Arial"};
+// one mono face for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
+java.io.File[] files = new java.io.File("data/fonts").listFiles();
+if (files != null) {
+	for (java.io.File f : files) {
+		String n = f.getName().toLowerCase();
+		if (!n.endsWith(".ttf") && !n.endsWith(".otf")) continue;
+		try {
+			java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(Font.createFont(Font.TRUETYPE_FONT, f));
+		} catch (Exception e) {
+			traceln("font " + f.getName() + " not loaded: " + e.getMessage());
+		}
+	}
+}
+String[] want = {"Chivo Mono", "JetBrains Mono", "IBM Plex Mono", "DM Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Monospaced"};
 Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
 for (String f : want) {
 	if (have.contains(f)) {
@@ -470,18 +481,18 @@ return wh != null && i < workers.size();
   }
   Color roleColor(int role) {
 switch (role) {
-	case 0: return new Color(229, 57, 53);     // picker
-	case 1: return new Color(255, 111, 0);     // packer
-	case 2: return new Color(253, 216, 53);    // receiver
-	default: return new Color(30, 136, 229);   // putaway
+	case 0: return new Color(0x2055E1);                   // picker
+	case 1: return new Color(0xE8590C);        // packer
+	case 2: return new Color(0xF4B522);                    // receiver
+	default: return new Color(0x12A150);       // putaway
 }
   }
   Color workerColor(int i) {
 Worker u = workers.get(i);
-return u.busyNow ? roleColor(u.role) : new Color(0x9E9E9E);
+return u.busyNow ? roleColor(u.role) : new Color(0x9A9FA6);
   }
   String layoutTitle() {
-if (wh == null) return "loading ...";
+if (wh == null) return "Loading the layout";
 switch (wh.layout.id) {
 	case "D40.3_63.1-P3-Xnone-asis": return "As-is layout, real storage";
 	case "D40.3_63.1-P3-Xnone-random": return "As-is building, random storage";
@@ -495,42 +506,46 @@ switch (wh.layout.id) {
   String layoutDetail() {
 if (wh == null) return "";
 switch (wh.layout.id) {
-	case "D40.3_63.1-P3-Xnone-asis": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  storage as recorded in the WMS  ·  3 packing stations";
-	case "D40.3_63.1-P3-Xnone-random": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  random storage  ·  3 packing stations";
-	case "D40.3_63.1-P3-Xnone-class": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  class-based storage (A/B/C zones)  ·  3 packing stations";
-	case "D40.3_63.1-P3-Xnone-abc": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  ABC storage by turnover  ·  3 packing stations";
-	case "D46.6_111.1-P3-X18.27_53.27-abc": return "picker depot at (46.6, 111.1) m  ·  2 extra cross aisles at x = 18.27, 53.27 m  ·  ABC storage by turnover  ·  3 packing stations";
-	case "D34.93_102.1-P3-X14.93_23.27-abc": return "picker depot at (34.93, 102.1) m  ·  2 extra cross aisles at x = 14.93, 23.27 m  ·  ABC storage by turnover  ·  3 packing stations";
-	default: return "slotting " + wh.layout.slotting;
+	case "D40.3_63.1-P3-Xnone-asis": return "Picker depot at 40.3, 63.1 m.\nNo extra cross aisles.\nStorage as recorded in the WMS, 3 packing stations.";
+	case "D40.3_63.1-P3-Xnone-random": return "Picker depot at 40.3, 63.1 m.\nNo extra cross aisles.\nRandom storage, 3 packing stations.";
+	case "D40.3_63.1-P3-Xnone-class": return "Picker depot at 40.3, 63.1 m.\nNo extra cross aisles.\nClass-based storage (A/B/C zones), 3 packing stations.";
+	case "D40.3_63.1-P3-Xnone-abc": return "Picker depot at 40.3, 63.1 m.\nNo extra cross aisles.\nABC storage by turnover, 3 packing stations.";
+	case "D46.6_111.1-P3-X18.27_53.27-abc": return "Picker depot at 46.6, 111.1 m.\n2 extra cross aisles at x = 18.27 and 53.27 m.\nABC storage by turnover, 3 packing stations.";
+	case "D34.93_102.1-P3-X14.93_23.27-abc": return "Picker depot at 34.93, 102.1 m.\n2 extra cross aisles at x = 14.93 and 23.27 m.\nABC storage by turnover, 3 packing stations.";
+	default: return "Slotting " + wh.layout.slotting + ".";
 }
   }
   String clockText() {
-long t = (long) time();
-return String.format("%02d:%02d", (6 + t / 3600) % 24, (t / 60) % 60);
-  }
-  String dayText() {
-if (wh == null) return "";
-String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
-String mode = !done && time() > 0 && !getEngine().getRealTimeMode() ? "fast-forwarding the quiet morning  \u00b7  " : "";
-return mode + day + "  \u00b7  seed " + seed + "  \u00b7  06:00 to " + clockOf(wh.cfg.horizon);
+return clockOf(time());
   }
   String clockOf(double t) {
 long s = (long) t;
 return String.format("%02d:%02d", (6 + s / 3600) % 24, (s / 60) % 60);
   }
+  String dayText() {
+if (wh == null) return "";
+String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
+day = day.substring(0, 1).toUpperCase() + day.substring(1);
+return day + ", seed " + seed + ", 06:00 to " + clockOf(wh.cfg.horizon);
+  }
+  String fastText() {
+return wh != null && !done && time() > 0 && !getEngine().getRealTimeMode() ? "Skipping ahead to the first order release" : "";
+  }
   double dayProgress() {
 return wh == null ? 0 : Math.max(0, Math.min(1, time() / wh.cfg.horizon));
   }
   double[] liveKpi() {
-// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held}; computed once per time
-if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0};
+// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held, orders released};
+// computed once per model time
+if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0, 0};
 double t = time();
 if (liveV != null && t == liveT) return liveV;
 double sum = 0;
-int n = 0, due = 0, ok = 0, everHeld = 0;
+int n = 0, due = 0, ok = 0, everHeld = 0, released = 0;
 for (int i = 0; i < kpi.oArr.length; i++) {
 	if (Double.isNaN(kpi.oArr[i])) continue;
 	if (kpi.oHeld[i]) everHeld++;
+	if (!Double.isNaN(kpi.oRel[i])) released++;
 	if (!Double.isNaN(kpi.oPacked[i])) {
 		sum += kpi.oPacked[i] - kpi.oArr[i];
 		n++;
@@ -541,7 +556,7 @@ for (int i = 0; i < kpi.oArr.length; i++) {
 	}
 }
 liveT = t;
-liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld};
+liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld, released};
 return liveV;
   }
   double walkPerOrder() {
@@ -550,49 +565,59 @@ return kpi == null || kpi.tourOrders == 0 ? Double.NaN : kpi.tourM / kpi.tourOrd
   double utilSoFar(int k) {
 return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;
   }
-  double orZero(double x) {
-return Double.isNaN(x) ? 0 : x;
-  }
-  String tileValue(int i) {
+  String figValue(int i) {
 if (wh == null) return "\u2013";
 double[] v = liveKpi();
 switch (i) {
-	case 0: return String.valueOf(nArrived);
-	case 1: return String.valueOf(nShipped);
-	case 2: return String.valueOf(pending.size());
-	case 3: return String.valueOf((int) kpi.held.value());
-	case 4: return String.valueOf(nTours);
-	case 5: return Double.isNaN(walkPerOrder()) ? "\u2013" : String.format("%.0f m", walkPerOrder());
-	case 6: return Double.isNaN(v[0]) ? "\u2013" : String.format("%.0f min", v[0]);
-	case 7: return Double.isNaN(v[1]) ? "\u2013" : String.format("%.0f%%", v[1]);
-	case 8: return String.format("%.0f%%", 100 * utilSoFar(0));
-	default: return String.format("%.0f%%", 100 * utilSoFar(1));
+	case 0: return Double.isNaN(walkPerOrder()) ? "\u2013" : String.format("%.0f m", walkPerOrder());
+	case 1: return Double.isNaN(v[0]) ? "\u2013" : String.format("%.0f min", v[0]);
+	default: return Double.isNaN(v[1]) ? "\u2013" : String.format("%.0f%%", v[1]);
 }
   }
-  String tileSub(int i) {
+  String figNote(int i) {
 if (wh == null) return "";
 double[] v = liveKpi();
 switch (i) {
-	case 0: return "of " + wh.scenario.orders.size() + " in the day";
-	case 1: return nPacked + " packed, " + (int) kpi.staging.value() + " staged";
-	case 2: return pickerPool.busy() + " carts out now";
-	case 3: return (int) v[3] + " held at some point";
-	case 4: return kpi.tours > 0 ? String.format("%.1f orders per cart", (double) kpi.tourOrders / kpi.tours) : "no cart back yet";
-	case 5: return String.format("%.1f km in total", kpi.tourM / 1000);
-	case 6: return "arrival to packed";
-	case 7: return (int) v[2] > 0 ? "of " + (int) v[2] + " due so far" : "no cut-off yet";
-	case 8: return "busy now " + pickerPool.busy() + " of " + staff[0];
-	default: return "busy now " + packerPool.busy() + " of " + staff[1];
+	case 0: return kpi.tours > 0 ? String.format("%.1f km, %d carts", kpi.tourM / 1000, kpi.tours) : "no cart back yet";
+	case 1: return nPacked > 0 ? "mean of " + nPacked + " orders" : "none packed yet";
+	default: return (int) v[2] > 0 ? "of " + (int) v[2] + " orders due" : "no cut-off yet";
 }
   }
-  Color tileColor(int i) {
-if (wh == null) return new Color(0x1F2937);
-if (i == 3) return kpi.held.value() > 0 ? new Color(0xDC2626) : new Color(0x1F2937);
-if (i == 7) {
-	double p = liveKpi()[1];
-	return Double.isNaN(p) ? new Color(0x1F2937) : p >= 95 ? new Color(0x16A34A) : p >= 80 ? new Color(0xD97706) : new Color(0xDC2626);
+  int boardNow(int i) {
+if (wh == null) return 0;
+switch (i) {
+	case 0: return (int) kpi.held.value();
+	case 1: return pending.size();
+	case 2: return pickPool.size() - pending.size();
+	case 3: return nPicked - nPacked;
+	default: return (int) kpi.staging.value();
 }
-return new Color(0x1F2937);
+  }
+  String boardSoFar(int i) {
+if (wh == null) return "";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return (int) v[3] + " held today";
+	case 1: return (int) v[4] + " released";
+	case 2: return nPicked + " picked";
+	case 3: return nPacked + " packed";
+	default: return nShipped + " shipped";
+}
+  }
+  String crewText(int k) {
+if (wh == null) return "";
+ResourcePool[] pools = {pickerPool, packerPool, receiverPool, putawayPool};
+return pools[k].busy() + " of " + staff[k] + " busy";
+  }
+  double crewBusyNow(int k) {
+if (wh == null || staff[k] == 0) return 0;
+ResourcePool[] pools = {pickerPool, packerPool, receiverPool, putawayPool};
+return (double) pools[k].busy() / staff[k];
+  }
+  String inboundText() {
+if (wh == null) return "";
+return String.format("Receiving buffer holds %d of %d lines.%n%,d units on the shelves.",
+	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), wh.inv.totalOnHand());
   }
   double endD(String key) {
 Object o = endS == null ? null : endS.get(key);
@@ -799,185 +824,185 @@ unit.busyNow = false;
   void _startup() {
 setup();
   }
-  // layoutName.TextCode
+  // dayInfo.TextCode
   Object _snippet40() {
-return layoutTitle() + "     " + layoutDetail();
+return dayText();
   }
   // clock.TextCode
   Object _snippet41() {
 return clockText();
   }
-  // dayInfo.TextCode
+  // fastForward.TextCode
   Object _snippet42() {
-return dayText();
+return fastText();
   }
   // dayBar.WidthCode
   double _snippet43() {
 return 1410 * dayProgress();
   }
-  // tileValue0.ColorCode
-  Color _snippet44() {
-return tileColor(0);
+  // layoutName.TextCode
+  Object _snippet44() {
+return layoutTitle();
   }
-  // tileValue0.TextCode
+  // layoutWords.TextCode
   Object _snippet45() {
-return tileValue(0);
+return layoutDetail();
   }
-  // text5.TextCode
+  // fig0.TextCode
   Object _snippet46() {
-return tileSub(0);
+return figValue(0);
   }
-  // tileValue1.ColorCode
-  Color _snippet47() {
-return tileColor(1);
+  // text4.TextCode
+  Object _snippet47() {
+return figNote(0);
   }
-  // tileValue1.TextCode
+  // fig1.TextCode
   Object _snippet48() {
-return tileValue(1);
+return figValue(1);
   }
-  // text9.TextCode
+  // text7.TextCode
   Object _snippet49() {
-return tileSub(1);
+return figNote(1);
   }
-  // tileValue2.ColorCode
-  Color _snippet50() {
-return tileColor(2);
+  // fig2.TextCode
+  Object _snippet50() {
+return figValue(2);
   }
-  // tileValue2.TextCode
+  // text10.TextCode
   Object _snippet51() {
-return tileValue(2);
+return figNote(2);
   }
   // text13.TextCode
   Object _snippet52() {
-return tileSub(2);
+return wh == null ? "" : nArrived + " of " + wh.scenario.orders.size() + " arrived";
   }
-  // tileValue3.ColorCode
-  Color _snippet53() {
-return tileColor(3);
+  // rectangle18.VisibleCode
+  boolean _snippet53() {
+return boardNow(0) > 0;
   }
-  // tileValue3.TextCode
-  Object _snippet54() {
-return tileValue(3);
+  // text19.ColorCode
+  Color _snippet54() {
+return boardNow(0) > 0 ? new Color(0x0A0D13) : new Color(0xFBFEFF);
   }
-  // text17.TextCode
-  Object _snippet55() {
-return tileSub(3);
+  // text20.ColorCode
+  Color _snippet55() {
+return boardNow(0) > 0 ? new Color(0x0A0D13) : new Color(0xF4B522);
   }
-  // tileValue4.ColorCode
-  Color _snippet56() {
-return tileColor(4);
+  // text20.TextCode
+  Object _snippet56() {
+return boardNow(0);
   }
-  // tileValue4.TextCode
-  Object _snippet57() {
-return tileValue(4);
+  // text21.ColorCode
+  Color _snippet57() {
+return boardNow(0) > 0 ? new Color(0x282B32) : new Color(0x9A9FA6);
   }
   // text21.TextCode
   Object _snippet58() {
-return tileSub(4);
+return boardSoFar(0);
   }
-  // tileValue5.ColorCode
-  Color _snippet59() {
-return tileColor(5);
-  }
-  // tileValue5.TextCode
-  Object _snippet60() {
-return tileValue(5);
+  // text24.TextCode
+  Object _snippet59() {
+return boardNow(1);
   }
   // text25.TextCode
+  Object _snippet60() {
+return boardSoFar(1);
+  }
+  // text28.TextCode
   Object _snippet61() {
-return tileSub(5);
-  }
-  // tileValue6.ColorCode
-  Color _snippet62() {
-return tileColor(6);
-  }
-  // tileValue6.TextCode
-  Object _snippet63() {
-return tileValue(6);
+return boardNow(2);
   }
   // text29.TextCode
-  Object _snippet64() {
-return tileSub(6);
+  Object _snippet62() {
+return boardSoFar(2);
   }
-  // tileValue7.ColorCode
-  Color _snippet65() {
-return tileColor(7);
-  }
-  // tileValue7.TextCode
-  Object _snippet66() {
-return tileValue(7);
+  // text32.TextCode
+  Object _snippet63() {
+return boardNow(3);
   }
   // text33.TextCode
+  Object _snippet64() {
+return boardSoFar(3);
+  }
+  // text36.TextCode
+  Object _snippet65() {
+return boardNow(4);
+  }
+  // text37.TextCode
+  Object _snippet66() {
+return boardSoFar(4);
+  }
+  // text41.TextCode
   Object _snippet67() {
-return tileSub(7);
+return String.format("%.0f%% of the day", 100 * utilSoFar(0));
   }
-  // tileValue8.ColorCode
-  Color _snippet68() {
-return tileColor(8);
+  // text42.TextCode
+  Object _snippet68() {
+return crewText(0);
   }
-  // tileValue8.TextCode
-  Object _snippet69() {
-return tileValue(8);
+  // rectangle44.WidthCode
+  double _snippet69() {
+return 420 * crewBusyNow(0);
   }
-  // tileBar8.WidthCode
-  double _snippet70() {
-return 104 * Math.min(1, utilSoFar(0));
+  // text46.TextCode
+  Object _snippet70() {
+return String.format("%.0f%% of the day", 100 * utilSoFar(1));
   }
-  // text38.TextCode
+  // text47.TextCode
   Object _snippet71() {
-return tileSub(8);
+return crewText(1);
   }
-  // tileValue9.ColorCode
-  Color _snippet72() {
-return tileColor(9);
+  // rectangle49.WidthCode
+  double _snippet72() {
+return 420 * crewBusyNow(1);
   }
-  // tileValue9.TextCode
+  // text51.TextCode
   Object _snippet73() {
-return tileValue(9);
+return String.format("%.0f%% of the day", 100 * utilSoFar(2));
   }
-  // tileBar9.WidthCode
-  double _snippet74() {
-return 104 * Math.min(1, utilSoFar(1));
+  // text52.TextCode
+  Object _snippet74() {
+return crewText(2);
   }
-  // text43.TextCode
-  Object _snippet75() {
-return tileSub(9);
+  // rectangle54.WidthCode
+  double _snippet75() {
+return 420 * crewBusyNow(2);
+  }
+  // text56.TextCode
+  Object _snippet76() {
+return String.format("%.0f%% of the day", 100 * utilSoFar(3));
+  }
+  // text57.TextCode
+  Object _snippet77() {
+return crewText(3);
+  }
+  // rectangle59.WidthCode
+  double _snippet78() {
+return 420 * crewBusyNow(3);
+  }
+  // text60.TextCode
+  Object _snippet79() {
+return inboundText();
   }
   // throughput.arrived
-  double _snippet76() {
+  double _snippet80() {
 return nArrived;
   }
   // throughput.picked
-  double _snippet77() {
+  double _snippet81() {
 return nPicked;
   }
   // throughput.shipped
-  double _snippet78() {
+  double _snippet82() {
 return nShipped;
   }
-  // levels.orders in system
-  double _snippet79() {
-return kpi == null ? 0 : kpi.inSystem.value();
-  }
-  // levels.held (no stock)
-  double _snippet80() {
-return kpi == null ? 0 : kpi.held.value();
-  }
-  // levels.in staging
-  double _snippet81() {
-return kpi == null ? 0 : kpi.staging.value();
-  }
-  // levels.receiving buffer
-  double _snippet82() {
-return kpi == null ? 0 : kpi.recvBuffer.value();
-  }
-  // efficiency.walk per order (m)
+  // walk.walk per order (m)
   double _snippet83() {
-return orZero(walkPerOrder());
+return walkPerOrder();
   }
-  // efficiency.fulfilment, arrival to packed (min)
+  // fulfil.fulfilment (min)
   double _snippet84() {
-return orZero(liveKpi()[0]);
+return liveKpi()[0];
   }
   // workerDot.XCode
   double _snippet85(int index) {
@@ -999,212 +1024,232 @@ return 80;
   Color _snippet89(int index) {
 return workerColor(index);
   }
-  // roundedrectangle56.VisibleCode
+  // rectangle70.VisibleCode
   boolean _snippet90() {
 return done;
   }
-  // roundedrectangle57.VisibleCode
+  // text71.VisibleCode
   boolean _snippet91() {
 return done;
   }
-  // rectangle58.VisibleCode
+  // text72.VisibleCode
   boolean _snippet92() {
 return done;
   }
-  // text59.VisibleCode
-  boolean _snippet93() {
-return done;
+  // text72.TextCode
+  Object _snippet93() {
+return layoutTitle();
   }
-  // text60.VisibleCode
+  // text73.VisibleCode
   boolean _snippet94() {
 return done;
   }
-  // text60.TextCode
+  // text73.TextCode
   Object _snippet95() {
-return layoutTitle() + "  ·  " + new java.io.File(scenarioPath).getName() + "  ·  seed " + seed;
+return dayText();
   }
-  // rectangle61.VisibleCode
+  // rectangle74.VisibleCode
   boolean _snippet96() {
 return done;
   }
-  // text62.VisibleCode
+  // text75.VisibleCode
   boolean _snippet97() {
 return done;
   }
-  // text62.TextCode
+  // text75.TextCode
   Object _snippet98() {
 return endLabel(0);
   }
-  // text63.VisibleCode
+  // text76.VisibleCode
   boolean _snippet99() {
 return done;
   }
-  // text63.TextCode
+  // text76.TextCode
   Object _snippet100() {
 return endText(0);
   }
-  // text64.VisibleCode
+  // rectangle77.VisibleCode
   boolean _snippet101() {
 return done;
   }
-  // text64.TextCode
-  Object _snippet102() {
-return endLabel(1);
-  }
-  // text65.VisibleCode
-  boolean _snippet103() {
-return done;
-  }
-  // text65.TextCode
-  Object _snippet104() {
-return endText(1);
-  }
-  // rectangle66.VisibleCode
-  boolean _snippet105() {
-return done;
-  }
-  // text67.VisibleCode
-  boolean _snippet106() {
-return done;
-  }
-  // text67.TextCode
-  Object _snippet107() {
-return endLabel(2);
-  }
-  // text68.VisibleCode
-  boolean _snippet108() {
-return done;
-  }
-  // text68.TextCode
-  Object _snippet109() {
-return endText(2);
-  }
-  // text69.VisibleCode
-  boolean _snippet110() {
-return done;
-  }
-  // text69.TextCode
-  Object _snippet111() {
-return endLabel(3);
-  }
-  // text70.VisibleCode
-  boolean _snippet112() {
-return done;
-  }
-  // text70.TextCode
-  Object _snippet113() {
-return endText(3);
-  }
-  // rectangle71.VisibleCode
-  boolean _snippet114() {
-return done;
-  }
-  // text72.VisibleCode
-  boolean _snippet115() {
-return done;
-  }
-  // text72.TextCode
-  Object _snippet116() {
-return endLabel(4);
-  }
-  // text73.VisibleCode
-  boolean _snippet117() {
-return done;
-  }
-  // text73.TextCode
-  Object _snippet118() {
-return endText(4);
-  }
-  // text74.VisibleCode
-  boolean _snippet119() {
-return done;
-  }
-  // text74.TextCode
-  Object _snippet120() {
-return endLabel(5);
-  }
-  // text75.VisibleCode
-  boolean _snippet121() {
-return done;
-  }
-  // text75.TextCode
-  Object _snippet122() {
-return endText(5);
-  }
-  // rectangle76.VisibleCode
-  boolean _snippet123() {
-return done;
-  }
-  // text77.VisibleCode
-  boolean _snippet124() {
-return done;
-  }
-  // text77.TextCode
-  Object _snippet125() {
-return endLabel(6);
-  }
   // text78.VisibleCode
-  boolean _snippet126() {
+  boolean _snippet102() {
 return done;
   }
   // text78.TextCode
-  Object _snippet127() {
-return endText(6);
+  Object _snippet103() {
+return endLabel(1);
   }
   // text79.VisibleCode
-  boolean _snippet128() {
+  boolean _snippet104() {
 return done;
   }
   // text79.TextCode
-  Object _snippet129() {
-return endLabel(7);
+  Object _snippet105() {
+return endText(1);
   }
-  // text80.VisibleCode
-  boolean _snippet130() {
+  // rectangle80.VisibleCode
+  boolean _snippet106() {
 return done;
   }
-  // text80.TextCode
-  Object _snippet131() {
-return endText(7);
-  }
-  // rectangle81.VisibleCode
-  boolean _snippet132() {
+  // text81.VisibleCode
+  boolean _snippet107() {
 return done;
+  }
+  // text81.TextCode
+  Object _snippet108() {
+return endLabel(2);
   }
   // text82.VisibleCode
-  boolean _snippet133() {
+  boolean _snippet109() {
 return done;
   }
   // text82.TextCode
-  Object _snippet134() {
-return endLabel(8);
+  Object _snippet110() {
+return endText(2);
   }
-  // text83.VisibleCode
-  boolean _snippet135() {
+  // rectangle83.VisibleCode
+  boolean _snippet111() {
 return done;
   }
-  // text83.TextCode
-  Object _snippet136() {
-return endText(8);
-  }
   // text84.VisibleCode
-  boolean _snippet137() {
+  boolean _snippet112() {
 return done;
   }
   // text84.TextCode
-  Object _snippet138() {
-return endLabel(9);
+  Object _snippet113() {
+return endLabel(3);
   }
   // text85.VisibleCode
-  boolean _snippet139() {
+  boolean _snippet114() {
 return done;
   }
   // text85.TextCode
+  Object _snippet115() {
+return endText(3);
+  }
+  // rectangle86.VisibleCode
+  boolean _snippet116() {
+return done;
+  }
+  // text87.VisibleCode
+  boolean _snippet117() {
+return done;
+  }
+  // text87.TextCode
+  Object _snippet118() {
+return endLabel(4);
+  }
+  // text88.VisibleCode
+  boolean _snippet119() {
+return done;
+  }
+  // text88.TextCode
+  Object _snippet120() {
+return endText(4);
+  }
+  // rectangle89.VisibleCode
+  boolean _snippet121() {
+return done;
+  }
+  // text90.VisibleCode
+  boolean _snippet122() {
+return done;
+  }
+  // text90.TextCode
+  Object _snippet123() {
+return endLabel(5);
+  }
+  // text91.VisibleCode
+  boolean _snippet124() {
+return done;
+  }
+  // text91.TextCode
+  Object _snippet125() {
+return endText(5);
+  }
+  // rectangle92.VisibleCode
+  boolean _snippet126() {
+return done;
+  }
+  // text93.VisibleCode
+  boolean _snippet127() {
+return done;
+  }
+  // text93.TextCode
+  Object _snippet128() {
+return endLabel(6);
+  }
+  // text94.VisibleCode
+  boolean _snippet129() {
+return done;
+  }
+  // text94.TextCode
+  Object _snippet130() {
+return endText(6);
+  }
+  // rectangle95.VisibleCode
+  boolean _snippet131() {
+return done;
+  }
+  // text96.VisibleCode
+  boolean _snippet132() {
+return done;
+  }
+  // text96.TextCode
+  Object _snippet133() {
+return endLabel(7);
+  }
+  // text97.VisibleCode
+  boolean _snippet134() {
+return done;
+  }
+  // text97.TextCode
+  Object _snippet135() {
+return endText(7);
+  }
+  // rectangle98.VisibleCode
+  boolean _snippet136() {
+return done;
+  }
+  // text99.VisibleCode
+  boolean _snippet137() {
+return done;
+  }
+  // text99.TextCode
+  Object _snippet138() {
+return endLabel(8);
+  }
+  // text100.VisibleCode
+  boolean _snippet139() {
+return done;
+  }
+  // text100.TextCode
   Object _snippet140() {
+return endText(8);
+  }
+  // rectangle101.VisibleCode
+  boolean _snippet141() {
+return done;
+  }
+  // text102.VisibleCode
+  boolean _snippet142() {
+return done;
+  }
+  // text102.TextCode
+  Object _snippet143() {
+return endLabel(9);
+  }
+  // text103.VisibleCode
+  boolean _snippet144() {
+return done;
+  }
+  // text103.TextCode
+  Object _snippet145() {
 return endText(9);
   }
-  // text86.VisibleCode
-  boolean _snippet141() {
+  // text104.VisibleCode
+  boolean _snippet146() {
 return done;
   }
   void _pvCompareLayouts(Main root) { int runs = 0;

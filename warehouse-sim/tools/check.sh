@@ -24,6 +24,16 @@ rm -rf build/classes && mkdir -p build/classes
 echo "== 3a. AnyLogic model: generate"
 python3 anylogic/build_model.py
 
+echo "== 3a'. screen preview: no text may overlap another or cross a rule (build/screen_*.png)"
+if python3 -c "import PIL" 2>/dev/null; then
+  for L in D40.3_63.1-P3-Xnone-asis D46.6_111.1-P3-X18.27_53.27-abc; do
+    python3 tools/preview_screen.py "$MODEL/data/layouts/$L.json" "build/screen_$L.png"
+    python3 tools/preview_screen.py "$MODEL/data/layouts/$L.json" "build/screen_${L}_end.png" --end
+  done
+else
+  echo "   skipped (no Pillow)"
+fi
+
 echo "== 3b. compile all model Java against the AnyLogic engine"
 rm -rf build/shadow.out && mkdir -p build/shadow.out
 "$JAVAC" -proc:none -nowarn --release 17 -cp "$CP_RUNTIME" -d build/shadow.out build/shadow/warehousesim/*.java

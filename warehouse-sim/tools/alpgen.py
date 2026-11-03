@@ -614,7 +614,7 @@ class Shapes:
 
     def time_plot(self, name, x, y, w, h, series, window=7200, recurrence=60, vmax=None, area="#FFFFFF",
                   border="#000000", grid="#CCCCCC", text="#404040", legend_text="#000000", label_format="MODEL_TIME_UNITS",
-                  line_width=2.0):
+                  line_width=2.0, legend=True):
         """series: list of (title, expression, '#color'). Colours style the chart area, its border, grid and labels."""
         ds = []
         for title, expr, col in series:
@@ -634,11 +634,11 @@ class Shapes:
             f'<RecurrenceCode Class="CodeUnitValue">\n<Code>{cd(recurrence)}</Code>\n<Unit Class="TimeUnits">{cd("SECOND")}</Unit>\n</RecurrenceCode>\n'
             '</RecurrenceProperties>\n'
             f'<EmbeddedIcon>false</EmbeddedIcon>\n<Width>{w}</Width>\n<Height>{h}</Height>\n<BackgroundColor/>\n<BorderColor/>\n'
-            f'<ChartArea>\n<XOffset>50</XOffset>\n<YOffset>20</YOffset>\n<Width>{w - 70}</Width>\n<Height>{h - 80}</Height>\n'
+            f'<ChartArea>\n<XOffset>50</XOffset>\n<YOffset>20</YOffset>\n<Width>{w - 70}</Width>\n<Height>{h - (80 if legend else 50)}</Height>\n'
             f'<BackgroundColor>{color(area)}</BackgroundColor>\n<BorderColor>{color(border)}</BorderColor>\n<GridColor>{color(grid)}</GridColor>\n</ChartArea>\n'
             f'<Legend>\n<Place>SOUTH</Place>\n<TextColor>{color(legend_text)}</TextColor>\n<Size>30</Size>\n</Legend>\n'
             '<Labels>\n<HorLabelsPosition>DEFAULT</HorLabelsPosition>\n<VerLabelsPosition>DEFAULT</VerLabelsPosition>\n'
-            f'<TextColor>{color(text)}</TextColor>\n</Labels>\n<ShowLegend>true</ShowLegend>\n'
+            f'<TextColor>{color(text)}</TextColor>\n</Labels>\n<ShowLegend>{"true" if legend else "false"}</ShowLegend>\n'
             '<TimeWindowsMovementType>MOVEMENT_WITH_DATA</TimeWindowsMovementType>\n<TimeWindowUnits>MODEL_TIME_UNIT</TimeWindowUnits>\n'
             f'<VerScaleFromExpression>{cd(vs[1])}</VerScaleFromExpression>\n<VerScaleToExpression>{cd(vs[2])}</VerScaleToExpression>\n'
             f'<VerScaleType>{vs[0]}</VerScaleType>\n<DrawLine>true</DrawLine>\n<Interpolation>LINEAR</Interpolation>\n'

@@ -33,20 +33,23 @@ MAX_DOTS = 80                                # worker dots drawn
 # model start date: 2025-10-06 06:00 IST (charts show the clock; the animated run resets it to 06:00 local time)
 START_MS = 1759708800000 + 30 * 60 * 1000
 
-# ---- screen design: one typeface, one accent colour, status colours only where a KPI is good / bad
-UI_FONT = "Roboto"       # nominal; Main.pickFont() swaps in the first installed of FONTS at start-up
-FONTS = ["Roboto", "Segoe UI", "Lato", "Open Sans", "Noto Sans", "Helvetica Neue", "Arial"]
-PAGE, CARD, LINE, SHADOW = "#F3F5F8", "#FFFFFF", "#E2E6EC", "#E6E9EE"
-INK, MUTED, HEADER = "#1F2937", "#6B7280", "#1E293B"
-ACCENT, GOOD, WARN, BAD = "#2563EB", "#16A34A", "#D97706", "#DC2626"
-PAGE_W = 1410
-TILE_Y, TILE_W, TILE_H, TILE_GAP = 68, 128, 84, 10
-FLOOR_X, FLOOR_Y = 20, 164                   # warehouse floor card (sized at start-up to the layout)
-FLOOR_W, FLOOR_H = 890, 640                  # largest picture of the layout; the card ends above the flowchart
-CHART_X, CHART_W = 950, 440
+# ---- screen design: an operations board (Hallmark "Wayfind" material): cool grey paper, blue-black ink,
+# one mono face, square 2px ink rules, cobalt for what is live, amber for figures on ink. No rounded cards, no shadows.
+UI_FONT = "Chivo Mono"   # nominal; Main.pickFont() loads data/fonts/*.ttf and takes the first installed of FONTS
+FONTS = ["Chivo Mono", "JetBrains Mono", "IBM Plex Mono", "DM Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono",
+         "Monospaced"]
+PAPER, PAPER2, PAPER3 = "#EDF0F4", "#DDE2E7", "#FBFEFF"
+INK, INK2, MUTED, RULE, INKRULE, INKMUTED = "#0A0D13", "#282B32", "#565B64", "#B9BEC5", "#34383F", "#9A9FA6"
+ACCENT, AMBER = "#2055E1", "#F4B522"
+PAGE_W, PAGE_H = 1410, 880                   # what fits one screen; the flowchart is below
+HEAD_H = 60
+COL_A, COL_B, COL_C = 24, 540, 990           # floor map | figures, order board, crew | charts
+COL_A_W, COL_B_W, COL_C_W = 476, 420, 396
+TOP = 80                                     # first line under the header
+FRAME_Y, FRAME_H, KEY_W = 168, 684, 150      # floor map frame; the key sits right of it
 FLOW_Y0 = 1000                               # the process flowchart starts here
-COL = dict(PAGE=PAGE, CARD=CARD, LINE=LINE, SHADOW=SHADOW, INK=INK, MUTED=MUTED, HEADER=HEADER, ACCENT=ACCENT,
-           GOOD=GOOD, WARN=WARN, BAD=BAD, IDLE="#9E9E9E")
+COL = dict(PAPER=PAPER, PAPER2=PAPER2, PAPER3=PAPER3, INK=INK, INK2=INK2, MUTED=MUTED, RULE=RULE, INKRULE=INKRULE,
+           ACCENT=ACCENT, AMBER=AMBER, IDLE=INKMUTED)
 # end-of-day panel / console table: (label, Java expression on Main.endS = Kpi.summary(...))
 END_ROWS = [
     ("Orders shipped", 'String.format("%d of %d arrived", (int) endD("orders_shipped"), (int) endD("orders_arrived"))'),
@@ -67,7 +70,7 @@ def jcolor(hexcol):
 
 
 def jstr(s):
-    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
 
 
 def layout_names():
@@ -90,10 +93,11 @@ def layout_names():
         else:
             title = next(redesign, "Candidate layout")
         ca = d["cross_aisles"]
-        detail = (f"picker depot at ({d['depot'][0]:g}, {d['depot'][1]:g}) m  ·  "
-                  + (f"{len(ca)} extra cross aisle{'s' if len(ca) > 1 else ''} at x = {', '.join(f'{x:g}' for x in ca)} m"
-                     if ca else "no extra cross aisles")
-                  + f"  ·  {storage.get(d['slotting'], d['slotting'])}  ·  {d['n_pack']} packing stations")
+        aisles = (f"{len(ca)} extra cross aisle{'s' if len(ca) > 1 else ''} at x = {' and '.join(f'{x:g}' for x in ca)} m"
+                  if ca else "no extra cross aisles")
+        st = storage.get(d["slotting"], d["slotting"])
+        detail = (f"Picker depot at {d['depot'][0]:g}, {d['depot'][1]:g} m.\n{aisles[0].upper() + aisles[1:]}.\n"
+                  f"{st[0].upper() + st[1:]}, {d['n_pack']} packing stations.")
         out[f.removesuffix(".json")] = (title, detail)
     return out
 
@@ -185,8 +189,8 @@ def build():
         ("layoutPath", "String", '""'),
         ("scenarioPath", "String", '""'),
         ("px", "double", "10"),
-        ("ox", "double", str(FLOOR_X + 14)),
-        ("oy", "double", str(FLOOR_Y + 52)),
+        ("ox", "double", str(COL_A + 8)),
+        ("oy", "double", str(FRAME_Y + 8)),
         ("nArrived", "int", "0"),
         ("nPicked", "int", "0"),
         ("nPacked", "int", "0"),
@@ -207,7 +211,7 @@ def build():
     fy = iter(range(20, 2000, 22))
 
     def fn(name, ret, args, body, doc=""):
-        body = re.sub(r"\bC_([A-Z]+)\b", lambda mo: jcolor(COL[mo.group(1)]), body)     # palette colours
+        body = re.sub(r"\bC_([A-Z0-9]+)\b", lambda mo: jcolor(COL[mo.group(1)]), body)     # palette colours
         main.function(name, ret, args, body.strip("\n"), 1850, next(fy), doc=doc)
 
     fn("setup", None, [], r"""
@@ -410,16 +414,16 @@ finishSimulation();
     # ---- drawing (runtime-built picture of the layout)
     fn("cellColor", "Color", [("String", "t")], """
 switch (t) {
-	case "#": return new Color(55, 71, 79);
-	case "A": return new Color(236, 239, 241);
-	case "S": return new Color(161, 136, 127);
-	case "DI": return new Color(46, 125, 50);
-	case "DO": return new Color(21, 101, 192);
-	case "R": return new Color(255, 224, 130);
-	case "PK": return new Color(255, 152, 0);
-	case "G": return new Color(179, 157, 219);
-	case "H": return new Color(0, 137, 123);
-	default: return Color.WHITE;
+	case "#": return C_INK;                     // wall
+	case "A": return C_PAPER3;                  // aisle
+	case "S": return new Color(0xA7ADB6);       // shelf
+	case "DI": return C_INK2;                   // inbound dock
+	case "DO": return C_INK2;                   // outbound dock
+	case "R": return new Color(0xF6DC97);       // receiving
+	case "PK": return C_AMBER;                  // packing station
+	case "G": return new Color(0xC3CFF3);       // staging
+	case "H": return C_ACCENT;                  // picker depot
+	default: return C_PAPER3;
 }
 """)
 
@@ -440,75 +444,74 @@ try {
 	traceln("chart clock labels: start date kept (" + e.getMessage() + ")");
 }
 LayoutData L = wh.layout;
-px = Math.min(FLOOR_W / L.widthM(), FLOOR_H / L.heightM());
+// the floor map fills its column: the frame is FRAME_H tall, the key takes KEY_W on its right
+px = Math.min((COL_A_W - 16 - 18 - KEY_W) / L.widthM(), (FRAME_H - 16) / L.heightM());
 double W = L.widthM() * px, H = L.heightM() * px;
 double cw = L.cellW * px, ch = L.cellH * px;
 int k = 0;                                 // insert at the bottom so the dashboard and the worker dots stay on top
-// page background and the floor card (the card fits the layout picture + its key)
-presentation.insert(k++, box(0, 0, PAGE_W, PAGE_H, C_PAGE, null, 0));
-presentation.insert(k++, box(FLOOR_X, FLOOR_Y + 2, W + 28, H + 124, C_SHADOW, null, 10));
-presentation.insert(k++, box(FLOOR_X, FLOOR_Y, W + 28, H + 124, C_CARD, C_LINE, 10));
-presentation.insert(k++, label(ox, FLOOR_Y + 10, "Warehouse floor", C_INK, 14, true));
-presentation.insert(k++, label(ox, FLOOR_Y + 30, String.format("%d x %d cells of %.2f x %.2f m  \\u00b7  %d storage slots  \\u00b7  layout %s",
-	L.cols, L.rows, L.cellW, L.cellH, L.slotId.length, L.id), C_MUTED, 10, false));
+presentation.insert(k++, box(0, 0, PAGE_W, PAGE_H, C_PAPER, null, 0));
+presentation.insert(k++, box(COL_A, FRAME_Y, W + 16, H + 16, C_PAPER3, C_INK, 2));
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
 		s.setPos(sx(L.originX + q * L.cellW), sy(L.originY + (r + 1) * L.cellH));
 		s.setSize(cw, ch);
 		s.setFillColor(cellColor(L.grid[r][q]));
-		s.setLineColor(new Color(255, 255, 255));
+		s.setLineColor(C_PAPER3);
 		s.setLineWidth(0.5);
 		presentation.insert(k++, s);
 	}
 }
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
-	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, Color.WHITE, 8, true);
+	boolean dark = f.type.equals("DI") || f.type.equals("DO") || f.type.equals("H");
+	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, dark ? C_PAPER3 : C_INK, 8, true);
 	t.setAlignment(ALIGNMENT_CENTER);
 	presentation.insert(k++, t);
 }
-// key: what the cell colours and the worker dots mean
-String[] cell = {"A", "S", "#", "DI", "R", "PK", "G", "DO", "H"};
-String[] cellName = {"aisle", "shelf", "wall", "inbound dock", "receiving", "packing station", "staging", "outbound dock", "picker depot"};
-double y = oy + H + 14, x = ox;
-presentation.insert(k++, label(x, y - 1, "Floor", C_MUTED, 10, true));
-x += 48;
+// key, right of the map: what the cell colours and the worker dots mean
+String[] cell = {"A", "S", "#", "R", "PK", "G", "DI", "H"};
+String[] cellName = {"aisle", "shelf", "wall", "receiving", "packing station", "staging", "dock", "picker depot"};
+double x = COL_A + W + 16 + 18, y = FRAME_Y;
+presentation.insert(k++, label(x, y, "Floor", C_INK, 12, true));
+y += 24;
 for (int i = 0; i < cell.length; i++) {
-	presentation.insert(k++, box(x, y, 11, 11, cellColor(cell[i]), new Color(0xCFD6DE), 2));
-	presentation.insert(k++, label(x + 16, y - 1, cellName[i], C_INK, 10, false));
-	x += 16 + 5.6 * cellName[i].length() + 18;
+	presentation.insert(k++, box(x, y + 1, 12, 12, cellColor(cell[i]), C_INK, 1));
+	presentation.insert(k++, label(x + 20, y, cellName[i], C_INK2, 11, false));
+	y += 20;
 }
-y += 22; x = ox;
-presentation.insert(k++, label(x, y - 1, "Workers", C_MUTED, 10, true));
-x += 48;
-String[] who = {"picker", "packer", "receiver", "putaway", "idle (any role)"};
+y += 16;
+presentation.insert(k++, label(x, y, "Workers", C_INK, 12, true));
+y += 24;
+String[] who = {"picker", "packer", "receiver", "putaway", "idle"};
 for (int i = 0; i < who.length; i++) {
 	ShapeOval o = new ShapeOval();
-	o.setPos(x + 5.5, y + 5.5);
+	o.setPos(x + 6, y + 7);
 	o.setRadius(5.5);
 	o.setFillColor(i < 4 ? roleColor(i) : C_IDLE);
-	o.setLineColor(Color.WHITE);
+	o.setLineColor(C_PAPER3);
 	o.setLineWidth(1.5);
 	presentation.insert(k++, o);
-	presentation.insert(k++, label(x + 16, y - 1, who[i], C_INK, 10, false));
-	x += 16 + 5.6 * who[i].length() + 18;
+	presentation.insert(k++, label(x + 20, y, who[i], C_INK2, 11, false));
+	y += 20;
 }
-""".replace("FLOOR_W", f"{FLOOR_W:.1f}").replace("FLOOR_H", f"{FLOOR_H:.1f}").replace("FLOOR_X", str(FLOOR_X))
-       .replace("FLOOR_Y", str(FLOOR_Y)).replace("PAGE_W", str(PAGE_W)).replace("PAGE_H", str(FLOW_Y0 - 70)),
-       "Draws the layout read from the JSON file (page background, floor card, cells, facility labels, colour key).")
+y += 16;
+presentation.insert(k++, label(x, y, L.cols + " x " + L.rows + " cells\\n" + String.format("%.2f x %.2f m each", L.cellW, L.cellH)
+	+ "\\n" + L.slotId.length + " slots", C_MUTED, 10, false));
+""".replace("COL_A_W", f"{COL_A_W:.1f}").replace("FRAME_H", f"{FRAME_H:.1f}").replace("KEY_W", f"{KEY_W:.1f}")
+       .replace("COL_A", str(COL_A)).replace("FRAME_Y", str(FRAME_Y)).replace("PAGE_W", str(PAGE_W)).replace("PAGE_H", str(PAGE_H)),
+       "Draws the layout read from the JSON file (page, framed floor map, facility labels, the key).")
 
-    fn("box", "ShapeRoundedRectangle", [("double", "x"), ("double", "y"), ("double", "w"), ("double", "h"), ("Color", "fill"),
-                                        ("Color", "line"), ("double", "radius")], """
-ShapeRoundedRectangle s = new ShapeRoundedRectangle();
+    fn("box", "ShapeRectangle", [("double", "x"), ("double", "y"), ("double", "w"), ("double", "h"), ("Color", "fill"),
+                                 ("Color", "line"), ("double", "lw")], """
+ShapeRectangle s = new ShapeRectangle();
 s.setPos(x, y);
 s.setSize(w, h);
-s.setRadius(radius);
 s.setFillColor(fill);
 s.setLineColor(line);
-s.setLineWidth(line == null ? 0 : 1);
+s.setLineWidth(line == null ? 0 : lw);
 return s;
-""", "A filled (rounded) rectangle for the runtime-drawn picture; line null = no outline.")
+""", "A square filled rectangle for the runtime-drawn picture; line null = no rule.")
 
     fn("label", "ShapeText", [("double", "x"), ("double", "y"), ("String", "text"), ("Color", "c"), ("int", "size"),
                               ("boolean", "bold")], """
@@ -518,10 +521,22 @@ t.setText(text);
 t.setColor(c);
 t.setFont(new Font(uiFont, bold ? Font.BOLD : Font.PLAIN, size));
 return t;
-""", "A text in the dashboard typeface.")
+""", "A text in the board typeface.")
 
     fn("pickFont", None, [], """
-// one typeface for the whole screen: the first of these that is installed (Linux and Windows have different ones)
+// one mono face for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
+java.io.File[] files = new java.io.File("data/fonts").listFiles();
+if (files != null) {
+	for (java.io.File f : files) {
+		String n = f.getName().toLowerCase();
+		if (!n.endsWith(".ttf") && !n.endsWith(".otf")) continue;
+		try {
+			java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(Font.createFont(Font.TRUETYPE_FONT, f));
+		} catch (Exception e) {
+			traceln("font " + f.getName() + " not loaded: " + e.getMessage());
+		}
+	}
+}
 String[] want = FONTS;
 Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
 for (String f : want) {
@@ -532,7 +547,7 @@ for (String f : want) {
 }
 restyle(presentation);
 """.replace("FONTS", "{" + ", ".join(jstr(f) for f in FONTS) + "}"),
-       "Chooses the dashboard typeface and applies it to every text drawn by the model.")
+       "Chooses the board typeface and applies it to every text drawn by the model.")
 
     fn("restyle", None, [("ShapeGroup", "g")], """
 for (int i = 0; i < g.size(); i++) {
@@ -571,10 +586,10 @@ return new double[]{sx(p[0] + off), sy(p[1] + off)};
 
     fn("roleColor", "Color", [("int", "role")], """
 switch (role) {
-	case 0: return new Color(229, 57, 53);     // picker
-	case 1: return new Color(255, 111, 0);     // packer
-	case 2: return new Color(253, 216, 53);    // receiver
-	default: return new Color(30, 136, 229);   // putaway
+	case 0: return C_ACCENT;                   // picker
+	case 1: return new Color(0xE8590C);        // packer
+	case 2: return C_AMBER;                    // receiver
+	default: return new Color(0x12A150);       // putaway
 }
 """)
 
@@ -583,44 +598,47 @@ Worker u = workers.get(i);
 return u.busyNow ? roleColor(u.role) : C_IDLE;
 """)
 
-    # ---- dashboard: header, KPI tiles, end-of-day panel (values from the live model state)
+    # ---- the board: header, three comparison figures, the order board, the crew, the end-of-day panel
     names = layout_names()
-    fn("layoutTitle", "String", [], "if (wh == null) return \"loading ...\";\nswitch (wh.layout.id) {\n"
+    fn("layoutTitle", "String", [], "if (wh == null) return \"Loading the layout\";\nswitch (wh.layout.id) {\n"
        + "".join(f"\tcase {jstr(i)}: return {jstr(t)};\n" for i, (t, _) in names.items())
        + "\tdefault: return \"Layout \" + wh.layout.id;\n}", "The layout in plain words (from data/config/designs.json).")
     fn("layoutDetail", "String", [], "if (wh == null) return \"\";\nswitch (wh.layout.id) {\n"
        + "".join(f"\tcase {jstr(i)}: return {jstr(d)};\n" for i, (_, d) in names.items())
-       + "\tdefault: return \"slotting \" + wh.layout.slotting;\n}")
+       + "\tdefault: return \"Slotting \" + wh.layout.slotting + \".\";\n}")
 
-    fn("clockText", "String", [], """
-long t = (long) time();
-return String.format("%02d:%02d", (6 + t / 3600) % 24, (t / 60) % 60);
-""", "Time of day (model time 0 = 06:00).")
-
-    fn("dayText", "String", [], """
-if (wh == null) return "";
-String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
-String mode = !done && time() > 0 && !getEngine().getRealTimeMode() ? "fast-forwarding the quiet morning  \\u00b7  " : "";
-return mode + day + "  \\u00b7  seed " + seed + "  \\u00b7  06:00 to " + clockOf(wh.cfg.horizon);
-""")
+    fn("clockText", "String", [], "return clockOf(time());", "Time of day (model time 0 = 06:00).")
 
     fn("clockOf", "String", [("double", "t")], """
 long s = (long) t;
 return String.format("%02d:%02d", (6 + s / 3600) % 24, (s / 60) % 60);
 """)
 
+    fn("dayText", "String", [], """
+if (wh == null) return "";
+String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
+day = day.substring(0, 1).toUpperCase() + day.substring(1);
+return day + ", seed " + seed + ", 06:00 to " + clockOf(wh.cfg.horizon);
+""")
+
+    fn("fastText", "String", [], """
+return wh != null && !done && time() > 0 && !getEngine().getRealTimeMode() ? "Skipping ahead to the first order release" : "";
+""")
+
     fn("dayProgress", "double", [], "return wh == null ? 0 : Math.max(0, Math.min(1, time() / wh.cfg.horizon));")
 
     fn("liveKpi", "double[]", [], """
-// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held}; computed once per time
-if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0};
+// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held, orders released};
+// computed once per model time
+if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0, 0};
 double t = time();
 if (liveV != null && t == liveT) return liveV;
 double sum = 0;
-int n = 0, due = 0, ok = 0, everHeld = 0;
+int n = 0, due = 0, ok = 0, everHeld = 0, released = 0;
 for (int i = 0; i < kpi.oArr.length; i++) {
 	if (Double.isNaN(kpi.oArr[i])) continue;
 	if (kpi.oHeld[i]) everHeld++;
+	if (!Double.isNaN(kpi.oRel[i])) released++;
 	if (!Double.isNaN(kpi.oPacked[i])) {
 		sum += kpi.oPacked[i] - kpi.oArr[i];
 		n++;
@@ -631,59 +649,75 @@ for (int i = 0; i < kpi.oArr.length; i++) {
 	}
 }
 liveT = t;
-liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld};
+liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld, released};
 return liveV;
-""", "Running KPIs for the tiles and charts.")
+""", "Running KPIs for the board and the charts.")
 
     fn("walkPerOrder", "double", [], "return kpi == null || kpi.tourOrders == 0 ? Double.NaN : kpi.tourM / kpi.tourOrders;",
        "Picking walk per picked order so far (m) = the orders' share of their carts' tours.")
     fn("utilSoFar", "double", [("int", "k")], "return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;",
        "Utilisation of role k since 06:00 (0 pickers, 1 packers, 2 receivers, 3 putaway).")
-    fn("orZero", "double", [("double", "x")], "return Double.isNaN(x) ? 0 : x;")
 
-    fn("tileValue", "String", [("int", "i")], """
+    fn("figValue", "String", [("int", "i")], """
 if (wh == null) return "\\u2013";
 double[] v = liveKpi();
 switch (i) {
-	case 0: return String.valueOf(nArrived);
-	case 1: return String.valueOf(nShipped);
-	case 2: return String.valueOf(pending.size());
-	case 3: return String.valueOf((int) kpi.held.value());
-	case 4: return String.valueOf(nTours);
-	case 5: return Double.isNaN(walkPerOrder()) ? "\\u2013" : String.format("%.0f m", walkPerOrder());
-	case 6: return Double.isNaN(v[0]) ? "\\u2013" : String.format("%.0f min", v[0]);
-	case 7: return Double.isNaN(v[1]) ? "\\u2013" : String.format("%.0f%%", v[1]);
-	case 8: return String.format("%.0f%%", 100 * utilSoFar(0));
-	default: return String.format("%.0f%%", 100 * utilSoFar(1));
+	case 0: return Double.isNaN(walkPerOrder()) ? "\\u2013" : String.format("%.0f m", walkPerOrder());
+	case 1: return Double.isNaN(v[0]) ? "\\u2013" : String.format("%.0f min", v[0]);
+	default: return Double.isNaN(v[1]) ? "\\u2013" : String.format("%.0f%%", v[1]);
 }
-""", "Big number of KPI tile i.")
+""", "The three figures layouts are compared on.")
 
-    fn("tileSub", "String", [("int", "i")], """
+    fn("figNote", "String", [("int", "i")], """
 if (wh == null) return "";
 double[] v = liveKpi();
 switch (i) {
-	case 0: return "of " + wh.scenario.orders.size() + " in the day";
-	case 1: return nPacked + " packed, " + (int) kpi.staging.value() + " staged";
-	case 2: return pickerPool.busy() + " carts out now";
-	case 3: return (int) v[3] + " held at some point";
-	case 4: return kpi.tours > 0 ? String.format("%.1f orders per cart", (double) kpi.tourOrders / kpi.tours) : "no cart back yet";
-	case 5: return String.format("%.1f km in total", kpi.tourM / 1000);
-	case 6: return "arrival to packed";
-	case 7: return (int) v[2] > 0 ? "of " + (int) v[2] + " due so far" : "no cut-off yet";
-	case 8: return "busy now " + pickerPool.busy() + " of " + staff[0];
-	default: return "busy now " + packerPool.busy() + " of " + staff[1];
+	case 0: return kpi.tours > 0 ? String.format("%.1f km, %d carts", kpi.tourM / 1000, kpi.tours) : "no cart back yet";
+	case 1: return nPacked > 0 ? "mean of " + nPacked + " orders" : "none packed yet";
+	default: return (int) v[2] > 0 ? "of " + (int) v[2] + " orders due" : "no cut-off yet";
 }
 """)
 
-    fn("tileColor", "Color", [("int", "i")], """
-if (wh == null) return C_INK;
-if (i == 3) return kpi.held.value() > 0 ? C_BAD : C_INK;
-if (i == 7) {
-	double p = liveKpi()[1];
-	return Double.isNaN(p) ? C_INK : p >= 95 ? C_GOOD : p >= 80 ? C_WARN : C_BAD;
+    fn("boardNow", "int", [("int", "i")], """
+if (wh == null) return 0;
+switch (i) {
+	case 0: return (int) kpi.held.value();
+	case 1: return pending.size();
+	case 2: return pickPool.size() - pending.size();
+	case 3: return nPicked - nPacked;
+	default: return (int) kpi.staging.value();
 }
-return C_INK;
-""", "Status colour of a tile's number: only held orders and on-time % change colour.")
+""", "Orders at board row i now: held, waiting for a cart, on a cart, packing, staging.")
+
+    fn("boardSoFar", "String", [("int", "i")], """
+if (wh == null) return "";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return (int) v[3] + " held today";
+	case 1: return (int) v[4] + " released";
+	case 2: return nPicked + " picked";
+	case 3: return nPacked + " packed";
+	default: return nShipped + " shipped";
+}
+""")
+
+    fn("crewText", "String", [("int", "k")], """
+if (wh == null) return "";
+ResourcePool[] pools = {pickerPool, packerPool, receiverPool, putawayPool};
+return pools[k].busy() + " of " + staff[k] + " busy";
+""")
+
+    fn("crewBusyNow", "double", [("int", "k")], """
+if (wh == null || staff[k] == 0) return 0;
+ResourcePool[] pools = {pickerPool, packerPool, receiverPool, putawayPool};
+return (double) pools[k].busy() / staff[k];
+""")
+
+    fn("inboundText", "String", [], """
+if (wh == null) return "";
+return String.format("Receiving buffer holds %d of %d lines.%n%,d units on the shelves.",
+	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), wh.inv.totalOnHand());
+""")
 
     fn("endD", "double", [("String", "key")], """
 Object o = endS == null ? null : endS.get(key);
@@ -787,80 +821,108 @@ return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;
     main.shadow.cls("Main")["extra"].append(core)
 
     # ------------------------------------------------------------------ presentation
-    # static dashboard (the floor card, the layout picture and its key are drawn at start-up by drawLayout(), under these)
+    # static board; the page, the framed floor map and its key are drawn at start-up by drawLayout(), under these
     sh = Shapes(main, font=UI_FONT)
-    # header bar: title, layout in plain words, clock, day progress
-    sh.rect(0, 0, PAGE_W, 56, fill=HEADER, line=None, name="headerBar")
-    sh.text(24, 8, "Footwear warehouse  ·  one-day simulation", size=19, bold=True, col="#FFFFFF")
-    sh.text(24, 34, "", size=12, col="#CBD5E1", name="layoutName", TextCode='layoutTitle() + "     " + layoutDetail()')
-    sh.text(PAGE_W - 24, 4, "", size=24, bold=True, col="#FFFFFF", align="RIGHT", name="clock", TextCode="clockText()")
-    sh.text(PAGE_W - 24, 36, "", size=10, col="#94A3B8", align="RIGHT", name="dayInfo", TextCode="dayText()")
-    sh.rect(0, 53, PAGE_W, 3, fill="#334155", line=None, name="dayTrack")
-    sh.rect(0, 53, PAGE_W, 3, fill=ACCENT, line=None, name="dayBar", WidthCode=f"{PAGE_W} * dayProgress()")
-    # KPI tiles
-    tiles = ["Orders arrived", "Orders shipped", "Waiting for a cart", "Held, no stock", "Carts done",
-             "Walk per order", "Avg fulfilment", "On time so far", "Pickers busy", "Packers busy"]
-    for i, lab in enumerate(tiles):
-        x = FLOOR_X + i * (TILE_W + TILE_GAP)
-        sh.rrect(x, TILE_Y + 2, TILE_W, TILE_H, fill=SHADOW, radius=8)
-        sh.rrect(x, TILE_Y, TILE_W, TILE_H, fill=CARD, line=LINE, radius=8)
-        sh.text(x + 12, TILE_Y + 9, lab, size=11, col=MUTED)
-        sh.text(x + 12, TILE_Y + 25, "", size=22, bold=True, col=INK, name=f"tileValue{i}",
-                TextCode=f"tileValue({i})", ColorCode=f"tileColor({i})")
-        if i >= 8:          # utilisation since 06:00 as a bar
-            sh.rect(x + 12, TILE_Y + 56, TILE_W - 24, 5, fill="#E5E7EB", line=None)
-            sh.rect(x + 12, TILE_Y + 56, TILE_W - 24, 5, fill=ACCENT, line=None, name=f"tileBar{i}",
-                    WidthCode=f"{TILE_W - 24} * Math.min(1, utilSoFar({i - 8}))")
-            sh.text(x + 12, TILE_Y + 65, "", size=10, col=MUTED, TextCode=f"tileSub({i})")
-        else:
-            sh.text(x + 12, TILE_Y + 60, "", size=10, col=MUTED, TextCode=f"tileSub({i})")
-    # charts for comparing layouts (time axis = clock time)
-    style = dict(window=STOP_TIME, recurrence=300, area=CARD, border=LINE, grid="#EEF1F4", text=MUTED, legend_text=INK,
+    # header: what this is, which day, the clock (amber figure on ink), day progress (cobalt = live)
+    sh.rect(0, 0, PAGE_W, HEAD_H, fill=INK, line=None, name="headerBar")
+    sh.text(COL_A, 10, "Warehouse floor simulation", size=18, bold=True, col=PAPER3)
+    sh.text(COL_A, 36, "", size=11, col=INKMUTED, name="dayInfo", TextCode="dayText()")
+    sh.text(PAGE_W - 24, 9, "", size=30, bold=True, col=AMBER, align="RIGHT", name="clock", TextCode="clockText()")
+    sh.text(PAGE_W - 140, 24, "", size=11, col=PAPER3, align="RIGHT", name="fastForward", TextCode="fastText()")
+    sh.rect(0, HEAD_H - 3, PAGE_W, 3, fill=ACCENT, line=None, name="dayBar", WidthCode=f"{PAGE_W} * dayProgress()")
+    # column A: the layout in words above its map
+    sh.text(COL_A, TOP, "", size=20, bold=True, col=INK, name="layoutName", TextCode="layoutTitle()")
+    sh.text(COL_A, TOP + 30, "", size=11, col=MUTED, name="layoutWords", TextCode="layoutDetail()")
+    # column B, 1: the three figures layouts are compared on, in ruled cells joined edge to edge
+    figs = ["Walk per order", "Arrival to packed", "Packed by cut-off"]
+    cw = COL_B_W / len(figs)
+    sh.rect(COL_B, TOP, COL_B_W, 104, fill=PAPER3, line=INK, lw=2)
+    for i, lab in enumerate(figs):
+        x = COL_B + i * cw
+        if i:
+            sh.rect(x - 1, TOP, 2, 104, fill=INK, line=None)
+        sh.text(x + 12, TOP + 10, lab, size=11, col=MUTED)
+        sh.text(x + 12, TOP + 30, "", size=28, bold=True, col=INK, name=f"fig{i}", TextCode=f"figValue({i})")
+        sh.text(x + 12, TOP + 76, "", size=10, col=MUTED, TextCode=f"figNote({i})")
+    # column B, 2: the order board, stage by stage like a departures board (amber figures on ink)
+    bx, by, bw = COL_B, TOP + 124, COL_B_W
+    rows = ["Waiting for stock", "Waiting for a cart", "On a cart", "Packing", "In staging"]
+    rh, r0 = 42, by + 74
+    sh.rect(bx, by, bw, 74 + rh * len(rows) + 10, fill=INK, line=INK, lw=2)
+    sh.text(bx + 16, by + 14, "Orders", size=14, bold=True, col=PAPER3)
+    sh.text(bx + bw - 16, by + 17, "", size=11, col=INKMUTED, align="RIGHT",
+            TextCode='wh == null ? "" : nArrived + " of " + wh.scenario.orders.size() + " arrived"')
+    sh.rect(bx + 16, by + 42, bw - 32, 2, fill=PAPER3, line=None)
+    sh.text(bx + 16, by + 52, "Stage", size=10, col=INKMUTED)
+    sh.text(bx + 262, by + 52, "Now", size=10, col=INKMUTED, align="RIGHT")
+    sh.text(bx + bw - 16, by + 52, "Today", size=10, col=INKMUTED, align="RIGHT")
+    for i, lab in enumerate(rows):
+        ry = r0 + rh * i
+        alarm = "boardNow(0) > 0" if i == 0 else None       # held orders: the row turns amber, like a late train
+        if alarm:
+            sh.rect(bx + 2, ry, bw - 4, rh, fill=AMBER, line=None, VisibleCode=alarm)
+        on = lambda c_on, c_off: {"ColorCode": f"{alarm} ? {jcolor(c_on)} : {jcolor(c_off)}"} if alarm else {}  # noqa: E731
+        sh.text(bx + 16, ry + 13, lab, size=12, col=PAPER3, **on(INK, PAPER3))
+        sh.text(bx + 262, ry + 7, "", size=22, bold=True, col=AMBER, align="RIGHT", TextCode=f"boardNow({i})",
+                **on(INK, AMBER))
+        sh.text(bx + bw - 16, ry + 14, "", size=11, col=INKMUTED, align="RIGHT", TextCode=f"boardSoFar({i})",
+                **on(INK2, INKMUTED))
+        if i < len(rows) - 1:
+            sh.rect(bx + 16, ry + rh, bw - 32, 1, fill=INKRULE, line=None)
+    # column B, 3: the crew, busy now as a cobalt bar, utilisation since 06:00 beside the name
+    cy = by + 74 + rh * len(rows) + 10 + 22
+    sh.text(COL_B, cy, "Crew", size=14, bold=True, col=INK)
+    sh.rect(COL_B, cy + 24, COL_B_W, 2, fill=INK, line=None)
+    for k, lab in enumerate(["Pickers", "Packers", "Receivers", "Putaway"]):
+        ry = cy + 34 + 40 * k
+        sh.text(COL_B, ry + 4, lab, size=12, col=INK)
+        sh.text(COL_B + 104, ry + 6, "", size=10, col=MUTED,
+                TextCode=f'String.format("%.0f%% of the day", 100 * utilSoFar({k}))')
+        sh.text(COL_B + COL_B_W, ry + 4, "", size=12, bold=True, col=INK, align="RIGHT", TextCode=f"crewText({k})")
+        sh.rect(COL_B, ry + 24, COL_B_W, 4, fill=PAPER2, line=None)
+        sh.rect(COL_B, ry + 24, COL_B_W, 4, fill=ACCENT, line=None, WidthCode=f"{COL_B_W} * crewBusyNow({k})")
+    sh.text(COL_B, cy + 34 + 40 * 4 + 8, "", size=11, col=MUTED, TextCode="inboundText()")
+    # column C: one argument per chart, the accent on the series that matters, context in grey
+    style = dict(window=STOP_TIME, recurrence=300, area=PAPER3, border=RULE, grid=PAPER2, text=MUTED, legend_text=INK2,
                  label_format="MODEL_DATE_TIME_ONLY")
     charts = [
-        ("Orders through the day", "cumulative count since 06:00", 164, 246, "throughput",
-         [("arrived", "nArrived", "#94A3B8"), ("picked", "nPicked", ACCENT), ("shipped", "nShipped", GOOD)]),
-        ("Work in progress", "orders / receipt lines waiting at each stage", 420, 246, "levels",
-         [("orders in system", "kpi == null ? 0 : kpi.inSystem.value()", ACCENT),
-          ("held (no stock)", "kpi == null ? 0 : kpi.held.value()", BAD),
-          ("in staging", "kpi == null ? 0 : kpi.staging.value()", "#7C3AED"),
-          ("receiving buffer", "kpi == null ? 0 : kpi.recvBuffer.value()", WARN)]),
-        ("Picking efficiency", "running averages: lower is better", 676, 244, "efficiency",
-         [("walk per order (m)", "orZero(walkPerOrder())", ACCENT),
-          ("fulfilment, arrival to packed (min)", "orZero(liveKpi()[0])", "#0D9488")]),
+        ("Orders through the day", "Cumulative, since 06:00.", TOP, 254, "throughput", True,
+         [("arrived", "nArrived", INKMUTED), ("picked", "nPicked", INK2), ("shipped", "nShipped", ACCENT)]),
+        ("Walk per picked order", "Running mean, metres. Lower is better.", TOP + 270, 250, "walk", False,
+         [("walk per order (m)", "walkPerOrder()", ACCENT)]),
+        ("Arrival to packed", "Running mean, minutes. Lower is better.", TOP + 536, 236, "fulfil", False,
+         [("fulfilment (min)", "liveKpi()[0]", ACCENT)]),
     ]
-    for title, sub, cy, chh, name, series in charts:
-        sh.rrect(CHART_X, cy + 2, CHART_W, chh, fill=SHADOW, radius=10)
-        sh.rrect(CHART_X, cy, CHART_W, chh, fill=CARD, line=LINE, radius=10)
-        sh.text(CHART_X + 14, cy + 10, title, size=14, bold=True, col=INK)
-        sh.text(CHART_X + 14, cy + 30, sub, size=10, col=MUTED)
-        sh.time_plot(name, CHART_X + 4, cy + 44, CHART_W - 8, chh - 48, series, **style)
-    # worker dots (on top of the floor picture)
-    sh.oval(0, 0, 5.5, fill="#9E9E9E", line="#FFFFFF", lw=1.5, name="workerDot", rep=str(MAX_DOTS),
+    for title, sub, y, ch, name, legend, series in charts:
+        sh.text(COL_C, y, title, size=14, bold=True, col=INK)
+        sh.text(COL_C, y + 21, sub, size=10, col=MUTED)
+        sh.rect(COL_C, y + 40, COL_C_W, 2, fill=INK, line=None)
+        sh.time_plot(name, COL_C - 14, y + 44, COL_C_W + 14, ch - 44, series, legend=legend, **style)
+    # worker dots (on top of the floor map)
+    sh.oval(0, 0, 5.5, fill=INKMUTED, line=PAPER3, lw=1.5, name="workerDot", rep=str(MAX_DOTS),
             VisibleCode="workerVisible(index)", XCode="workerXY(index)[0]", YCode="workerXY(index)[1]",
             FillColorCode="workerColor(index)")
-    # end-of-day results panel, over the floor once the day is done
-    ex, ey, ew = FLOOR_X + 150, FLOOR_Y + 72, 600
-    eh = 84 + 30 * len(END_ROWS) + 40
-    sh.rrect(ex - 2, ey + 4, ew + 4, eh, fill="#CBD2DA", radius=12, VisibleCode="done")
-    sh.rrect(ex, ey, ew, eh, fill=CARD, line=LINE, radius=12, VisibleCode="done")
-    sh.rect(ex, ey + 12, 4, 40, fill=ACCENT, line=None, VisibleCode="done")
-    sh.text(ex + 22, ey + 14, "End of day results", size=18, bold=True, col=INK, VisibleCode="done")
-    sh.text(ex + 22, ey + 40, "", size=12, col=MUTED, VisibleCode="done",
-            TextCode='layoutTitle() + "  ·  " + new java.io.File(scenarioPath).getName() + "  ·  seed " + seed')
+    # end of day: the results sheet replaces the figures, the board and the charts (the floor stays visible)
+    ex, ey, ew, eh = COL_B, TOP, PAGE_W - 24 - COL_B, FRAME_Y + FRAME_H - TOP
+    tw = 640                                     # the table's width; the rest of the sheet stays empty
+    sh.rect(ex, ey, ew, eh, fill=PAPER3, line=INK, lw=2, VisibleCode="done")
+    sh.text(ex + 32, ey + 28, "End of day", size=24, bold=True, col=INK, VisibleCode="done")
+    sh.text(ex + 32, ey + 64, "", size=12, col=MUTED, VisibleCode="done", TextCode="layoutTitle()")
+    sh.text(ex + 32, ey + 82, "", size=12, col=MUTED, VisibleCode="done", TextCode="dayText()")
+    sh.rect(ex + 32, ey + 112, tw, 2, fill=INK, line=None, VisibleCode="done")
     for i in range(len(END_ROWS)):
-        ry = ey + 74 + 30 * i
-        if i % 2 == 0:
-            sh.rect(ex + 12, ry, ew - 24, 30, fill="#F6F8FA", line=None, VisibleCode="done")
-        sh.text(ex + 24, ry + 7, "", size=12, col=INK, VisibleCode="done", TextCode=f"endLabel({i})")
-        sh.text(ex + ew - 24, ry + 6, "", size=13, bold=True, col=INK, align="RIGHT", VisibleCode="done",
+        ry = ey + 120 + 38 * i
+        sh.text(ex + 32, ry + 11, "", size=13, col=INK2, VisibleCode="done", TextCode=f"endLabel({i})")
+        sh.text(ex + 32 + tw, ry + 10, "", size=14, bold=True, col=INK, align="RIGHT", VisibleCode="done",
                 TextCode=f"endText({i})")
-    sh.text(ex + 24, ey + eh - 30, "Appended to results/runs.csv.  To compare, set Main.layoutFile to another layout "
-            "and run the same day again.", size=10, col=MUTED, VisibleCode="done")
+        if i < len(END_ROWS) - 1:
+            sh.rect(ex + 32, ry + 38, tw, 1, fill=RULE, line=None, VisibleCode="done")
+    sh.text(ex + 32, ey + 120 + 38 * len(END_ROWS) + 28, "Added to results/runs.csv. To compare layouts, set "
+            "Main.layoutFile to another\nlayout and run the same day again.", size=11, col=MUTED, VisibleCode="done")
     # flowchart section
     sh.text(20, Y0 - 52, "Process flowchart", size=16, bold=True, col=INK)
-    sh.text(20, Y0 - 30, "The same for every layout.  Outbound: arrive, stock check (hold if short), wait for a cart "
-            "(wave release), cart tour by a picker, pack, staging until cut-off, ship.   Inbound: arrive, receive, "
+    sh.text(20, Y0 - 30, "The same for every layout. Outbound: arrive, stock check (hold if short), wait for a cart "
+            "(wave release), cart tour by a picker, pack, staging until cut-off, ship. Inbound: arrive, receive, "
             "putaway trip, stock up (releases held orders).", size=11, col=MUTED)
 
     # ------------------------------------------------------------------ experiments
