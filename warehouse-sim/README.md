@@ -25,6 +25,7 @@ IE305 Simulation Lab, IEOR IIT Bombay. This project models the order-fulfilment 
 |---|---|
 | `reports/REPORT.md` | **Final report**: scope, data, model, results, what-ifs, optimisation, recommendation |
 | `reports/input_analysis.md` | Input data analysis: cleaning log, summary statistics, fitted distributions with GoF tests, validation of the generator |
+| `reports/input_audit.md` | Input data audit against spec §3.1–3.2: data audit (no pick timestamps), independence and seasonality of the daily volume, discrete Anderson–Darling bootstrap, large-sample generator check, SKU-mix drift, picker heterogeneity |
 | `reports/validation.md` | The as-is layout model against the real pick locations (tours within 1%) |
 | `reports/optimization.md` | The four optimisation stages with figures |
 
@@ -35,6 +36,7 @@ cd python
 python3 -m whsim.cli config          # run settings (data/config/run_config.json)
 python3 -m whsim.cli scenarios       # fit the input models, write skus.csv + day files + historical waves
 python3 -m whsim.input_report        # reports/input_analysis.md + figures
+python3 -m whsim.cli audit           # reports/input_audit.md + figures (checks the input models, ~1 min)
 python3 -m whsim.validate            # reports/validation.md
 python3 -m whsim.optimize            # simulation-based optimisation (writes designs.json + layouts), ~10 min
 python3 -m whsim.opt_report          # reports/optimization.md + figures

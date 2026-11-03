@@ -5,6 +5,7 @@
     python3 -m whsim.cli scenarios      # skus.csv + day files from the fitted input models (whsim.input_models)
     python3 -m whsim.cli layouts        # one layout JSON per design in data/config/designs.json (+ index.txt)
     python3 -m whsim.cli check FILE     # validate a hand-drawn grid file (one row of tokens per line)
+    python3 -m whsim.cli audit          # input-data audit (spec 3.1-3.2) -> reports/input_audit.md (whsim.input_audit)
 
 Layouts are DESIGNS in coordinates (see whsim.design): depot position, extra cross aisles, packing
 stations and slotting policy on the real footwear warehouse. Their file names are made from those values.
@@ -98,7 +99,7 @@ def write_run_config():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["all", "layouts", "scenarios", "config", "check"])
+    ap.add_argument("cmd", choices=["all", "layouts", "scenarios", "config", "check", "audit"])
     ap.add_argument("file", nargs="?")
     ap.add_argument("--cell-w", type=float, default=1.5, help="check: cell width in metres")
     ap.add_argument("--cell-h", type=float, default=None, help="check: cell height in metres (default = width)")
@@ -111,6 +112,9 @@ def main(argv=None):
     if a.cmd in ("all", "layouts"):
         write_layouts()
         write_real_index()
+    if a.cmd == "audit":                 # report only: changes no file the model reads
+        from . import input_audit
+        input_audit.main()
     if a.cmd == "check":
         rows = [ln for ln in pathlib.Path(a.file).read_text().splitlines() if ln.strip()]
         sku_file = DATA / "skus.csv"
