@@ -1,7 +1,7 @@
 == 1. Python: fixtures + tests
 fixtures written to /home/shivam/code-masala/sim_lab_proj/warehouse-sim/build/fixtures
 ..............................                                           [100%]
-30 passed in 2.59s
+30 passed in 2.65s
 == 2. Java core: compile + tests
   D40.3_63.1-P3-Xnone-asis   shipped 201/201  held 13  pick m/order 87.8  fulfil mean 5076 s  on-time 100.0%  util pick 0.07 pack 0.19
   D40.3_63.1-P3-Xnone-random shipped 201/201  held 12  pick m/order 145.8  fulfil mean 5276 s  on-time 100.0%  util pick 0.10 pack 0.19

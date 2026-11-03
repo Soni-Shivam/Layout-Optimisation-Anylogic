@@ -73,6 +73,7 @@ public class Main extends Agent {
   public int nPutaway = -1;
   public int cartUnits = -1;
   public boolean writeOrders = true;
+  public boolean skipQuietStart = true;
   public String resultsDir = "results";
   public Warehouse wh = null;
   public Kpi kpi = null;
@@ -83,15 +84,20 @@ public class Main extends Agent {
   public String layoutPath = "";
   public String scenarioPath = "";
   public double px = 10;
-  public double ox = 20;
-  public double oy = 160;
+  public double ox = 34;
+  public double oy = 216;
   public int nArrived = 0;
   public int nPicked = 0;
   public int nPacked = 0;
   public int nShipped = 0;
   public int nTours = 0;
+  public double animScale = 60;
   public ArrayList<Order> pending = new ArrayList<Order>();
   public boolean done = false;
+  public String uiFont = "SansSerif";
+  public double liveT = -1;
+  public double[] liveV = null;
+  public Map<String, Object> endS = null;
   public ShapeTopLevelPresentationGroup presentation;
   public com.anylogic.libraries.processmodeling.Enter<Order> orderIn;
   public com.anylogic.libraries.processmodeling.Delay<Order> orderArrive;
@@ -116,6 +122,9 @@ public class Main extends Agent {
   public com.anylogic.libraries.processmodeling.Enter<DayClock> dayClockIn;
   public com.anylogic.libraries.processmodeling.Delay<DayClock> endOfDay;
   public com.anylogic.libraries.processmodeling.Sink<DayClock> dayEnd;
+  public com.anylogic.libraries.processmodeling.Enter<DayClock> wakeIn;
+  public com.anylogic.libraries.processmodeling.Delay<DayClock> wakeUp;
+  public com.anylogic.libraries.processmodeling.Sink<DayClock> wakeOut;
   public com.anylogic.libraries.processmodeling.Enter<Ticker> tickIn;
   public com.anylogic.libraries.processmodeling.Delay<Ticker> tick;
   public com.anylogic.libraries.processmodeling.Sink<Ticker> tickOut;
@@ -173,6 +182,16 @@ for (ScenarioData.OrderSpec s : wh.scenario.orders) orderIn.take(new Order(s));
 for (ScenarioData.ReceiptSpec s : wh.scenario.receipts) receiptIn.take(new Receipt(s));
 dayClockIn.take(new DayClock());
 tickIn.take(new Ticker());
+// animation: nothing happens before the first WMS release (often ~07:30), so fast-forward to 5 min before it
+// (only in a real-time run, i.e. the animated Simulation experiment; the experiments without animation are untouched)
+if (skipQuietStart && getEngine().getRealTimeMode() && !wh.scenario.orders.isEmpty()
+		&& wh.scenario.orders.get(0).t - 300 > time()) {
+	animScale = getEngine().getRealTimeScale();
+	getEngine().setRealTimeMode(false);
+	wakeIn.take(new DayClock());
+	traceln(String.format("fast-forwarding to %02d:%02d (5 min before the first order release)",
+		6 + (int) (wh.scenario.orders.get(0).t - 300) / 3600, (int) (wh.scenario.orders.get(0).t - 300) % 3600 / 60));
+}
 traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.scenario.orders.size() + " orders and "
 	+ wh.scenario.receipts.size() + " receipt lines from " + scenarioPath + ", seed " + seed
 	+ ", staff pick/pack/receive/putaway = " + staff[0] + "/" + staff[1] + "/" + staff[2] + "/" + staff[3]);
@@ -228,7 +247,13 @@ if (a.plan == null) {       // plan once (the delay time may be evaluated more t
 		kpi.pickStarted(o.spec, time());
 	}
 	a.plan = wh.planBatch(specs, time());
+	// the picker this cart seized (asked from the pool, so it does not depend on callback order)
+	if (a.picker == null) a.picker = (Worker) a.resourceUnitOfPool(pickerPool);
 	if (a.picker != null) a.picker.motion = a.plan.motion;
+	if (nTours == 0 && pickerPool.busy() == 1)
+		traceln(String.format("first cart at %02d:%02d: %d orders, %d stops, %.0f m, %.0f s, picker %s",
+			6 + (int) time() / 3600, (int) time() % 3600 / 60, a.orders.size(), a.plan.stops, a.plan.length, a.plan.duration,
+			a.picker == null ? "NOT FOUND (no animation)" : "#" + (a.picker.k + 1)));
 }
 return a.plan.duration;
   }
@@ -249,7 +274,7 @@ if (Double.isNaN(kpi.oPacked[a.spec.index])) {     // once per order
 	kpi.orderPacked(a.spec, time());
 }
 double c = wh.cfg.nextCutoff(time());
-return c < Double.POSITIVE_INFINITY ? c - time() : 10 * 400000;
+return c < Double.POSITIVE_INFINITY ? c - time() : 10 * 54060;
   }
   void orderShipped(Order a) {
 nShipped++;
@@ -259,6 +284,7 @@ kpi.orderShipped(a.spec, time());
 if (a.put == null) {
 	kpi.putawayStarted(a.spec, time());
 	a.put = wh.planPutaway(a.spec, time());
+	if (a.worker == null) a.worker = (Worker) a.resourceUnitOfPool(putawayPool);
 	if (a.worker != null) a.worker.motion = a.put.motion;
 }
 return a.put.duration;
@@ -278,6 +304,14 @@ for (int k = 0; k < 4; k++) util[k] = busy[k].mean(T) / staff[k];
 Map<String, Object> s = kpi.summary(T, new java.io.File(scenarioPath).getName(), staff, util);
 Kpi.appendSummary(resultsDir + "/runs.csv", s);
 if (writeOrders) kpi.writeOrders(resultsDir + "/orders_" + wh.layout.id + "_s" + seed + ".csv");
+endS = s;                                  // shown by the end-of-day panel
+StringBuilder tb = new StringBuilder();
+String rule = "+" + "-".repeat(66) + "+";
+tb.append(rule).append(String.format("%n| %-64s |%n| %-64s |%n", "End of day: " + layoutTitle(),
+	wh.layout.id + ", " + new java.io.File(scenarioPath).getName() + ", seed " + seed)).append(rule);
+for (int i = 0; i < 10; i++) tb.append(String.format("%n| %-38s %25s |", endLabel(i), endText(i)));
+tb.append(String.format("%n")).append(rule).append(String.format("%n  appended to %s/runs.csv", resultsDir));
+traceln(tb.toString());
 traceln(String.format("WarehouseSim done: %s seed %d | shipped %s of %s | fulfil mean %.0f s, p95 %.0f s | on time %.1f%% | pick %.1f m/order | util pick %.2f pack %.2f recv %.2f put %.2f",
 	wh.layout.id, seed, Kpi.fmt(s.get("orders_shipped")), Kpi.fmt(s.get("orders_arrived")), (Double) s.get("fulfil_mean_s"),
 	(Double) s.get("fulfil_p95_s"), (Double) s.get("on_time_pct"), (Double) s.get("pick_m_per_order"), util[0], util[1], util[2], util[3]));
@@ -305,10 +339,28 @@ return oy + (wh.layout.originY + wh.layout.heightM() - y) * px;
   }
   void drawLayout() {
 if (presentation == null) return;          // no animation in this experiment
+pickFont();
+// the charts label their time axis with the clock: model time 0 = 06:00 of the simulated day (local time zone)
+try {
+	Calendar c = Calendar.getInstance();
+	c.setTime(getEngine().getStartDate());
+	c.set(Calendar.HOUR_OF_DAY, 6); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
+	getEngine().setStartDate(c.getTime());
+} catch (RuntimeException e) {
+	traceln("chart clock labels: start date kept (" + e.getMessage() + ")");
+}
 LayoutData L = wh.layout;
-px = Math.min(900.0 / L.widthM(), 700.0 / L.heightM());
+px = Math.min(890.0 / L.widthM(), 640.0 / L.heightM());
+double W = L.widthM() * px, H = L.heightM() * px;
 double cw = L.cellW * px, ch = L.cellH * px;
-int k = 0;                                 // insert at the bottom so the worker dots stay on top
+int k = 0;                                 // insert at the bottom so the dashboard and the worker dots stay on top
+// page background and the floor card (the card fits the layout picture + its key)
+presentation.insert(k++, box(0, 0, 1410, 930, new Color(0xF3F5F8), null, 0));
+presentation.insert(k++, box(20, 164 + 2, W + 28, H + 124, new Color(0xE6E9EE), null, 10));
+presentation.insert(k++, box(20, 164, W + 28, H + 124, new Color(0xFFFFFF), new Color(0xE2E6EC), 10));
+presentation.insert(k++, label(ox, 164 + 10, "Warehouse floor", new Color(0x1F2937), 14, true));
+presentation.insert(k++, label(ox, 164 + 30, String.format("%d x %d cells of %.2f x %.2f m  \u00b7  %d storage slots  \u00b7  layout %s",
+	L.cols, L.rows, L.cellW, L.cellH, L.slotId.length, L.id), new Color(0x6B7280), 10, false));
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
@@ -322,22 +374,78 @@ for (int r = 0; r < L.rows; r++) {
 }
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
-	ShapeText t = new ShapeText();
-	t.setPos(sx(f.x), sy(f.y) - 4);
-	t.setText(f.id);
-	t.setColor(Color.WHITE);
-	t.setFont(new Font("SansSerif", Font.BOLD, 8));
+	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, Color.WHITE, 8, true);
 	t.setAlignment(ALIGNMENT_CENTER);
 	presentation.insert(k++, t);
 }
-ShapeText title = new ShapeText();
-title.setPos(ox, oy + L.heightM() * px + 6);
-title.setText("Layout " + L.id + "\n" + L.cols + " x " + L.rows + " cells of " + String.format("%.2f x %.2f", L.cellW, L.cellH)
-	+ " m, " + L.slotId.length + " slots, slotting " + L.slotting + "\ngrey = aisle, brown = shelf, green DI = inbound dock, "
-	+ "blue DO = outbound dock,\nyellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
-title.setColor(new Color(69, 90, 100));
-title.setFont(new Font("SansSerif", Font.PLAIN, 11));
-presentation.insert(k++, title);
+// key: what the cell colours and the worker dots mean
+String[] cell = {"A", "S", "#", "DI", "R", "PK", "G", "DO", "H"};
+String[] cellName = {"aisle", "shelf", "wall", "inbound dock", "receiving", "packing station", "staging", "outbound dock", "picker depot"};
+double y = oy + H + 14, x = ox;
+presentation.insert(k++, label(x, y - 1, "Floor", new Color(0x6B7280), 10, true));
+x += 48;
+for (int i = 0; i < cell.length; i++) {
+	presentation.insert(k++, box(x, y, 11, 11, cellColor(cell[i]), new Color(0xCFD6DE), 2));
+	presentation.insert(k++, label(x + 16, y - 1, cellName[i], new Color(0x1F2937), 10, false));
+	x += 16 + 5.6 * cellName[i].length() + 18;
+}
+y += 22; x = ox;
+presentation.insert(k++, label(x, y - 1, "Workers", new Color(0x6B7280), 10, true));
+x += 48;
+String[] who = {"picker", "packer", "receiver", "putaway", "idle (any role)"};
+for (int i = 0; i < who.length; i++) {
+	ShapeOval o = new ShapeOval();
+	o.setPos(x + 5.5, y + 5.5);
+	o.setRadius(5.5);
+	o.setFillColor(i < 4 ? roleColor(i) : new Color(0x9E9E9E));
+	o.setLineColor(Color.WHITE);
+	o.setLineWidth(1.5);
+	presentation.insert(k++, o);
+	presentation.insert(k++, label(x + 16, y - 1, who[i], new Color(0x1F2937), 10, false));
+	x += 16 + 5.6 * who[i].length() + 18;
+}
+  }
+  ShapeRoundedRectangle box(double x, double y, double w, double h, Color fill, Color line, double radius) {
+ShapeRoundedRectangle s = new ShapeRoundedRectangle();
+s.setPos(x, y);
+s.setSize(w, h);
+s.setRadius(radius);
+s.setFillColor(fill);
+s.setLineColor(line);
+s.setLineWidth(line == null ? 0 : 1);
+return s;
+  }
+  ShapeText label(double x, double y, String text, Color c, int size, boolean bold) {
+ShapeText t = new ShapeText();
+t.setPos(x, y);
+t.setText(text);
+t.setColor(c);
+t.setFont(new Font(uiFont, bold ? Font.BOLD : Font.PLAIN, size));
+return t;
+  }
+  void pickFont() {
+// one typeface for the whole screen: the first of these that is installed (Linux and Windows have different ones)
+String[] want = {"Roboto", "Segoe UI", "Lato", "Open Sans", "Noto Sans", "Helvetica Neue", "Arial"};
+Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+for (String f : want) {
+	if (have.contains(f)) {
+		uiFont = f;
+		break;
+	}
+}
+restyle(presentation);
+  }
+  void restyle(ShapeGroup g) {
+for (int i = 0; i < g.size(); i++) {
+	Object o = g.get(i);
+	if (o instanceof ShapeText) {
+		ShapeText t = (ShapeText) o;
+		Font f = t.getFont();
+		if (f != null) t.setFont(new Font(uiFont, f.getStyle(), f.getSize()));
+	} else if (o instanceof ShapeGroup) {
+		restyle((ShapeGroup) o);
+	}
+}
   }
   double[] homeXY(Worker u) {
 LayoutData L = wh.layout;
@@ -360,23 +468,166 @@ return new double[]{sx(p[0] + off), sy(p[1] + off)};
   boolean workerVisible(int i) {
 return wh != null && i < workers.size();
   }
+  Color roleColor(int role) {
+switch (role) {
+	case 0: return new Color(229, 57, 53);     // picker
+	case 1: return new Color(255, 111, 0);     // packer
+	case 2: return new Color(253, 216, 53);    // receiver
+	default: return new Color(30, 136, 229);   // putaway
+}
+  }
   Color workerColor(int i) {
 Worker u = workers.get(i);
-Color[] busyC = {new Color(229, 57, 53), new Color(255, 111, 0), new Color(253, 216, 53), new Color(30, 136, 229)};
-return u.busyNow ? busyC[u.role] : new Color(158, 158, 158);
+return u.busyNow ? roleColor(u.role) : new Color(0x9E9E9E);
   }
-  String statusText() {
+  String layoutTitle() {
 if (wh == null) return "loading ...";
+switch (wh.layout.id) {
+	case "D40.3_63.1-P3-Xnone-asis": return "As-is layout, real storage";
+	case "D40.3_63.1-P3-Xnone-random": return "As-is building, random storage";
+	case "D40.3_63.1-P3-Xnone-class": return "As-is building, class-based storage";
+	case "D40.3_63.1-P3-Xnone-abc": return "As-is building, ABC storage by turnover";
+	case "D46.6_111.1-P3-X18.27_53.27-abc": return "Recommended layout";
+	case "D34.93_102.1-P3-X14.93_23.27-abc": return "Runner-up layout";
+	default: return "Layout " + wh.layout.id;
+}
+  }
+  String layoutDetail() {
+if (wh == null) return "";
+switch (wh.layout.id) {
+	case "D40.3_63.1-P3-Xnone-asis": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  storage as recorded in the WMS  ·  3 packing stations";
+	case "D40.3_63.1-P3-Xnone-random": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  random storage  ·  3 packing stations";
+	case "D40.3_63.1-P3-Xnone-class": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  class-based storage (A/B/C zones)  ·  3 packing stations";
+	case "D40.3_63.1-P3-Xnone-abc": return "picker depot at (40.3, 63.1) m  ·  no extra cross aisles  ·  ABC storage by turnover  ·  3 packing stations";
+	case "D46.6_111.1-P3-X18.27_53.27-abc": return "picker depot at (46.6, 111.1) m  ·  2 extra cross aisles at x = 18.27, 53.27 m  ·  ABC storage by turnover  ·  3 packing stations";
+	case "D34.93_102.1-P3-X14.93_23.27-abc": return "picker depot at (34.93, 102.1) m  ·  2 extra cross aisles at x = 14.93, 23.27 m  ·  ABC storage by turnover  ·  3 packing stations";
+	default: return "slotting " + wh.layout.slotting;
+}
+  }
+  String clockText() {
 long t = (long) time();
-return String.format("%s   seed %d   day file %s%n"
-	+ "clock %02d:%02d:%02d (day ends at %s s)%n"
-	+ "orders: arrived %d   held now %d   waiting for a cart %d   picked %d (%d carts)   packed %d   shipped %d   in system %d%n"
-	+ "busy: pickers %d/%d   packers %d/%d   receivers %d/%d   putaway %d/%d%n"
-	+ "receiving buffer %d / %d lines   staging %d orders   stock on hand %d units",
-	wh.layout.id, seed, scenarioPath, t / 3600, (t / 60) % 60, t % 60, Kpi.fmt(wh.cfg.horizon),
-	nArrived, (int) kpi.held.value(), pending.size(), nPicked, nTours, nPacked, nShipped, (int) kpi.inSystem.value(),
-	pickerPool.busy(), staff[0], packerPool.busy(), staff[1], receiverPool.busy(), staff[2], putawayPool.busy(), staff[3],
-	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), (int) kpi.staging.value(), wh.inv.totalOnHand());
+return String.format("%02d:%02d", (6 + t / 3600) % 24, (t / 60) % 60);
+  }
+  String dayText() {
+if (wh == null) return "";
+String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
+String mode = !done && time() > 0 && !getEngine().getRealTimeMode() ? "fast-forwarding the quiet morning  \u00b7  " : "";
+return mode + day + "  \u00b7  seed " + seed + "  \u00b7  06:00 to " + clockOf(wh.cfg.horizon);
+  }
+  String clockOf(double t) {
+long s = (long) t;
+return String.format("%02d:%02d", (6 + s / 3600) % 24, (s / 60) % 60);
+  }
+  double dayProgress() {
+return wh == null ? 0 : Math.max(0, Math.min(1, time() / wh.cfg.horizon));
+  }
+  double[] liveKpi() {
+// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held}; computed once per time
+if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0};
+double t = time();
+if (liveV != null && t == liveT) return liveV;
+double sum = 0;
+int n = 0, due = 0, ok = 0, everHeld = 0;
+for (int i = 0; i < kpi.oArr.length; i++) {
+	if (Double.isNaN(kpi.oArr[i])) continue;
+	if (kpi.oHeld[i]) everHeld++;
+	if (!Double.isNaN(kpi.oPacked[i])) {
+		sum += kpi.oPacked[i] - kpi.oArr[i];
+		n++;
+	}
+	if (kpi.oDue[i] <= t) {          // due at a cut-off that has passed (as in Kpi.summary)
+		due++;
+		if (!Double.isNaN(kpi.oPacked[i]) && kpi.oPacked[i] <= kpi.oDue[i]) ok++;
+	}
+}
+liveT = t;
+liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld};
+return liveV;
+  }
+  double walkPerOrder() {
+return kpi == null || kpi.tourOrders == 0 ? Double.NaN : kpi.tourM / kpi.tourOrders;
+  }
+  double utilSoFar(int k) {
+return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;
+  }
+  double orZero(double x) {
+return Double.isNaN(x) ? 0 : x;
+  }
+  String tileValue(int i) {
+if (wh == null) return "\u2013";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return String.valueOf(nArrived);
+	case 1: return String.valueOf(nShipped);
+	case 2: return String.valueOf(pending.size());
+	case 3: return String.valueOf((int) kpi.held.value());
+	case 4: return String.valueOf(nTours);
+	case 5: return Double.isNaN(walkPerOrder()) ? "\u2013" : String.format("%.0f m", walkPerOrder());
+	case 6: return Double.isNaN(v[0]) ? "\u2013" : String.format("%.0f min", v[0]);
+	case 7: return Double.isNaN(v[1]) ? "\u2013" : String.format("%.0f%%", v[1]);
+	case 8: return String.format("%.0f%%", 100 * utilSoFar(0));
+	default: return String.format("%.0f%%", 100 * utilSoFar(1));
+}
+  }
+  String tileSub(int i) {
+if (wh == null) return "";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return "of " + wh.scenario.orders.size() + " in the day";
+	case 1: return nPacked + " packed, " + (int) kpi.staging.value() + " staged";
+	case 2: return pickerPool.busy() + " carts out now";
+	case 3: return (int) v[3] + " held at some point";
+	case 4: return kpi.tours > 0 ? String.format("%.1f orders per cart", (double) kpi.tourOrders / kpi.tours) : "no cart back yet";
+	case 5: return String.format("%.1f km in total", kpi.tourM / 1000);
+	case 6: return "arrival to packed";
+	case 7: return (int) v[2] > 0 ? "of " + (int) v[2] + " due so far" : "no cut-off yet";
+	case 8: return "busy now " + pickerPool.busy() + " of " + staff[0];
+	default: return "busy now " + packerPool.busy() + " of " + staff[1];
+}
+  }
+  Color tileColor(int i) {
+if (wh == null) return new Color(0x1F2937);
+if (i == 3) return kpi.held.value() > 0 ? new Color(0xDC2626) : new Color(0x1F2937);
+if (i == 7) {
+	double p = liveKpi()[1];
+	return Double.isNaN(p) ? new Color(0x1F2937) : p >= 95 ? new Color(0x16A34A) : p >= 80 ? new Color(0xD97706) : new Color(0xDC2626);
+}
+return new Color(0x1F2937);
+  }
+  double endD(String key) {
+Object o = endS == null ? null : endS.get(key);
+return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;
+  }
+  String endLabel(int i) {
+switch (i) {
+	case 0: return "Orders shipped";
+	case 1: return "Average fulfilment (arrival to packed)";
+	case 2: return "95th percentile fulfilment";
+	case 3: return "On time (packed by its cut-off)";
+	case 4: return "Walk per picked order";
+	case 5: return "Total picking walk";
+	case 6: return "Carts";
+	case 7: return "Orders held for stock";
+	case 8: return "Utilisation: pickers / packers";
+	case 9: return "Utilisation: receivers / putaway";
+	default: return "";
+}
+  }
+  String endText(int i) {
+if (endS == null) return "";
+switch (i) {
+	case 0: return String.format("%d of %d arrived", (int) endD("orders_shipped"), (int) endD("orders_arrived"));
+	case 1: return String.format("%.1f min", endD("fulfil_mean_s") / 60);
+	case 2: return String.format("%.1f min", endD("fulfil_p95_s") / 60);
+	case 3: return String.format("%.1f %%", endD("on_time_pct"));
+	case 4: return String.format("%.1f m", endD("pick_m_per_order"));
+	case 5: return String.format("%.2f km", endD("pick_m_total") / 1000);
+	case 6: return String.format("%d  (%.1f orders per cart)", (int) endD("tours"), endD("orders_per_tour"));
+	case 7: return String.valueOf((int) endD("held_orders"));
+	case 8: return String.format("%.0f %% / %.0f %%", 100 * endD("util_pick"), 100 * endD("util_pack"));
+	case 9: return String.format("%.0f %% / %.0f %%", 100 * endD("util_recv"), 100 * endD("util_put"));
+	default: return "";
+}
   }
   // orderArrive.delayTime
   double _snippet1(Order agent) {
@@ -471,113 +722,490 @@ return max(0, wh.cfg.horizon - time());
   void _snippet23(DayClock agent) {
 finishRun();
   }
+  // wakeUp.delayTime
+  double _snippet24(DayClock agent) {
+return max(0, wh.scenario.orders.get(0).t - 300 - time());
+  }
+  // wakeUp.onExit
+  void _snippet25(DayClock agent) {
+getEngine().setRealTimeMode(true);
+getEngine().setRealTimeScale(animScale);
+  }
   // tick.delayTime
-  double _snippet24(Ticker agent) {
+  double _snippet26(Ticker agent) {
 return wh.cfg.tick;
   }
   // tick.onExit
-  void _snippet25(Ticker agent) {
+  void _snippet27(Ticker agent) {
 dispatch();
 if (time() + wh.cfg.tick <= wh.cfg.horizon) tickIn.take(new Ticker());
   }
   // pickerPool.onNewUnit
-  void _snippet26(Worker unit) {
+  void _snippet28(Worker unit) {
 registerWorker(unit, 0);
   }
   // pickerPool.onSeize
-  void _snippet27(Worker unit, Agent agent) {
+  void _snippet29(Worker unit, Agent agent) {
 busy[0].add(time(), 1);
 unit.busyNow = true;
   }
   // pickerPool.onRelease
-  void _snippet28(Worker unit, Agent agent) {
+  void _snippet30(Worker unit, Agent agent) {
 busy[0].add(time(), -1);
 unit.busyNow = false;
   }
   // packerPool.onNewUnit
-  void _snippet29(Worker unit) {
+  void _snippet31(Worker unit) {
 registerWorker(unit, 1);
   }
   // packerPool.onSeize
-  void _snippet30(Worker unit, Agent agent) {
+  void _snippet32(Worker unit, Agent agent) {
 busy[1].add(time(), 1);
 unit.busyNow = true;
   }
   // packerPool.onRelease
-  void _snippet31(Worker unit, Agent agent) {
+  void _snippet33(Worker unit, Agent agent) {
 busy[1].add(time(), -1);
 unit.busyNow = false;
   }
   // receiverPool.onNewUnit
-  void _snippet32(Worker unit) {
+  void _snippet34(Worker unit) {
 registerWorker(unit, 2);
   }
   // receiverPool.onSeize
-  void _snippet33(Worker unit, Agent agent) {
+  void _snippet35(Worker unit, Agent agent) {
 busy[2].add(time(), 1);
 unit.busyNow = true;
   }
   // receiverPool.onRelease
-  void _snippet34(Worker unit, Agent agent) {
+  void _snippet36(Worker unit, Agent agent) {
 busy[2].add(time(), -1);
 unit.busyNow = false;
   }
   // putawayPool.onNewUnit
-  void _snippet35(Worker unit) {
+  void _snippet37(Worker unit) {
 registerWorker(unit, 3);
   }
   // putawayPool.onSeize
-  void _snippet36(Worker unit, Agent agent) {
+  void _snippet38(Worker unit, Agent agent) {
 busy[3].add(time(), 1);
 unit.busyNow = true;
   }
   // putawayPool.onRelease
-  void _snippet37(Worker unit, Agent agent) {
+  void _snippet39(Worker unit, Agent agent) {
 busy[3].add(time(), -1);
 unit.busyNow = false;
   }
   void _startup() {
 setup();
   }
-  // status.TextCode
-  Object _snippet38() {
-return statusText();
+  // layoutName.TextCode
+  Object _snippet40() {
+return layoutTitle() + "     " + layoutDetail();
   }
-  // workerDot.XCode
-  double _snippet39(int index) {
-return workerXY(index)[0];
+  // clock.TextCode
+  Object _snippet41() {
+return clockText();
   }
-  // workerDot.YCode
-  double _snippet40(int index) {
-return workerXY(index)[1];
+  // dayInfo.TextCode
+  Object _snippet42() {
+return dayText();
   }
-  // workerDot.VisibleCode
-  boolean _snippet41(int index) {
-return workerVisible(index);
+  // dayBar.WidthCode
+  double _snippet43() {
+return 1410 * dayProgress();
   }
-  // workerDot.replication
-  int _snippet42() {
-return 80;
+  // tileValue0.ColorCode
+  Color _snippet44() {
+return tileColor(0);
   }
-  // workerDot.FillColorCode
-  Color _snippet43(int index) {
-return workerColor(index);
+  // tileValue0.TextCode
+  Object _snippet45() {
+return tileValue(0);
+  }
+  // text5.TextCode
+  Object _snippet46() {
+return tileSub(0);
+  }
+  // tileValue1.ColorCode
+  Color _snippet47() {
+return tileColor(1);
+  }
+  // tileValue1.TextCode
+  Object _snippet48() {
+return tileValue(1);
+  }
+  // text9.TextCode
+  Object _snippet49() {
+return tileSub(1);
+  }
+  // tileValue2.ColorCode
+  Color _snippet50() {
+return tileColor(2);
+  }
+  // tileValue2.TextCode
+  Object _snippet51() {
+return tileValue(2);
+  }
+  // text13.TextCode
+  Object _snippet52() {
+return tileSub(2);
+  }
+  // tileValue3.ColorCode
+  Color _snippet53() {
+return tileColor(3);
+  }
+  // tileValue3.TextCode
+  Object _snippet54() {
+return tileValue(3);
+  }
+  // text17.TextCode
+  Object _snippet55() {
+return tileSub(3);
+  }
+  // tileValue4.ColorCode
+  Color _snippet56() {
+return tileColor(4);
+  }
+  // tileValue4.TextCode
+  Object _snippet57() {
+return tileValue(4);
+  }
+  // text21.TextCode
+  Object _snippet58() {
+return tileSub(4);
+  }
+  // tileValue5.ColorCode
+  Color _snippet59() {
+return tileColor(5);
+  }
+  // tileValue5.TextCode
+  Object _snippet60() {
+return tileValue(5);
+  }
+  // text25.TextCode
+  Object _snippet61() {
+return tileSub(5);
+  }
+  // tileValue6.ColorCode
+  Color _snippet62() {
+return tileColor(6);
+  }
+  // tileValue6.TextCode
+  Object _snippet63() {
+return tileValue(6);
+  }
+  // text29.TextCode
+  Object _snippet64() {
+return tileSub(6);
+  }
+  // tileValue7.ColorCode
+  Color _snippet65() {
+return tileColor(7);
+  }
+  // tileValue7.TextCode
+  Object _snippet66() {
+return tileValue(7);
+  }
+  // text33.TextCode
+  Object _snippet67() {
+return tileSub(7);
+  }
+  // tileValue8.ColorCode
+  Color _snippet68() {
+return tileColor(8);
+  }
+  // tileValue8.TextCode
+  Object _snippet69() {
+return tileValue(8);
+  }
+  // tileBar8.WidthCode
+  double _snippet70() {
+return 104 * Math.min(1, utilSoFar(0));
+  }
+  // text38.TextCode
+  Object _snippet71() {
+return tileSub(8);
+  }
+  // tileValue9.ColorCode
+  Color _snippet72() {
+return tileColor(9);
+  }
+  // tileValue9.TextCode
+  Object _snippet73() {
+return tileValue(9);
+  }
+  // tileBar9.WidthCode
+  double _snippet74() {
+return 104 * Math.min(1, utilSoFar(1));
+  }
+  // text43.TextCode
+  Object _snippet75() {
+return tileSub(9);
+  }
+  // throughput.arrived
+  double _snippet76() {
+return nArrived;
+  }
+  // throughput.picked
+  double _snippet77() {
+return nPicked;
+  }
+  // throughput.shipped
+  double _snippet78() {
+return nShipped;
   }
   // levels.orders in system
-  double _snippet44() {
+  double _snippet79() {
 return kpi == null ? 0 : kpi.inSystem.value();
   }
   // levels.held (no stock)
-  double _snippet45() {
+  double _snippet80() {
 return kpi == null ? 0 : kpi.held.value();
   }
   // levels.in staging
-  double _snippet46() {
+  double _snippet81() {
 return kpi == null ? 0 : kpi.staging.value();
   }
   // levels.receiving buffer
-  double _snippet47() {
+  double _snippet82() {
 return kpi == null ? 0 : kpi.recvBuffer.value();
+  }
+  // efficiency.walk per order (m)
+  double _snippet83() {
+return orZero(walkPerOrder());
+  }
+  // efficiency.fulfilment, arrival to packed (min)
+  double _snippet84() {
+return orZero(liveKpi()[0]);
+  }
+  // workerDot.XCode
+  double _snippet85(int index) {
+return workerXY(index)[0];
+  }
+  // workerDot.YCode
+  double _snippet86(int index) {
+return workerXY(index)[1];
+  }
+  // workerDot.VisibleCode
+  boolean _snippet87(int index) {
+return workerVisible(index);
+  }
+  // workerDot.replication
+  int _snippet88() {
+return 80;
+  }
+  // workerDot.FillColorCode
+  Color _snippet89(int index) {
+return workerColor(index);
+  }
+  // roundedrectangle56.VisibleCode
+  boolean _snippet90() {
+return done;
+  }
+  // roundedrectangle57.VisibleCode
+  boolean _snippet91() {
+return done;
+  }
+  // rectangle58.VisibleCode
+  boolean _snippet92() {
+return done;
+  }
+  // text59.VisibleCode
+  boolean _snippet93() {
+return done;
+  }
+  // text60.VisibleCode
+  boolean _snippet94() {
+return done;
+  }
+  // text60.TextCode
+  Object _snippet95() {
+return layoutTitle() + "  ·  " + new java.io.File(scenarioPath).getName() + "  ·  seed " + seed;
+  }
+  // rectangle61.VisibleCode
+  boolean _snippet96() {
+return done;
+  }
+  // text62.VisibleCode
+  boolean _snippet97() {
+return done;
+  }
+  // text62.TextCode
+  Object _snippet98() {
+return endLabel(0);
+  }
+  // text63.VisibleCode
+  boolean _snippet99() {
+return done;
+  }
+  // text63.TextCode
+  Object _snippet100() {
+return endText(0);
+  }
+  // text64.VisibleCode
+  boolean _snippet101() {
+return done;
+  }
+  // text64.TextCode
+  Object _snippet102() {
+return endLabel(1);
+  }
+  // text65.VisibleCode
+  boolean _snippet103() {
+return done;
+  }
+  // text65.TextCode
+  Object _snippet104() {
+return endText(1);
+  }
+  // rectangle66.VisibleCode
+  boolean _snippet105() {
+return done;
+  }
+  // text67.VisibleCode
+  boolean _snippet106() {
+return done;
+  }
+  // text67.TextCode
+  Object _snippet107() {
+return endLabel(2);
+  }
+  // text68.VisibleCode
+  boolean _snippet108() {
+return done;
+  }
+  // text68.TextCode
+  Object _snippet109() {
+return endText(2);
+  }
+  // text69.VisibleCode
+  boolean _snippet110() {
+return done;
+  }
+  // text69.TextCode
+  Object _snippet111() {
+return endLabel(3);
+  }
+  // text70.VisibleCode
+  boolean _snippet112() {
+return done;
+  }
+  // text70.TextCode
+  Object _snippet113() {
+return endText(3);
+  }
+  // rectangle71.VisibleCode
+  boolean _snippet114() {
+return done;
+  }
+  // text72.VisibleCode
+  boolean _snippet115() {
+return done;
+  }
+  // text72.TextCode
+  Object _snippet116() {
+return endLabel(4);
+  }
+  // text73.VisibleCode
+  boolean _snippet117() {
+return done;
+  }
+  // text73.TextCode
+  Object _snippet118() {
+return endText(4);
+  }
+  // text74.VisibleCode
+  boolean _snippet119() {
+return done;
+  }
+  // text74.TextCode
+  Object _snippet120() {
+return endLabel(5);
+  }
+  // text75.VisibleCode
+  boolean _snippet121() {
+return done;
+  }
+  // text75.TextCode
+  Object _snippet122() {
+return endText(5);
+  }
+  // rectangle76.VisibleCode
+  boolean _snippet123() {
+return done;
+  }
+  // text77.VisibleCode
+  boolean _snippet124() {
+return done;
+  }
+  // text77.TextCode
+  Object _snippet125() {
+return endLabel(6);
+  }
+  // text78.VisibleCode
+  boolean _snippet126() {
+return done;
+  }
+  // text78.TextCode
+  Object _snippet127() {
+return endText(6);
+  }
+  // text79.VisibleCode
+  boolean _snippet128() {
+return done;
+  }
+  // text79.TextCode
+  Object _snippet129() {
+return endLabel(7);
+  }
+  // text80.VisibleCode
+  boolean _snippet130() {
+return done;
+  }
+  // text80.TextCode
+  Object _snippet131() {
+return endText(7);
+  }
+  // rectangle81.VisibleCode
+  boolean _snippet132() {
+return done;
+  }
+  // text82.VisibleCode
+  boolean _snippet133() {
+return done;
+  }
+  // text82.TextCode
+  Object _snippet134() {
+return endLabel(8);
+  }
+  // text83.VisibleCode
+  boolean _snippet135() {
+return done;
+  }
+  // text83.TextCode
+  Object _snippet136() {
+return endText(8);
+  }
+  // text84.VisibleCode
+  boolean _snippet137() {
+return done;
+  }
+  // text84.TextCode
+  Object _snippet138() {
+return endLabel(9);
+  }
+  // text85.VisibleCode
+  boolean _snippet139() {
+return done;
+  }
+  // text85.TextCode
+  Object _snippet140() {
+return endText(9);
+  }
+  // text86.VisibleCode
+  boolean _snippet141() {
+return done;
   }
   void _pvCompareLayouts(Main root) { int runs = 0;
 runs++;

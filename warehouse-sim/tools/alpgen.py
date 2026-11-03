@@ -485,8 +485,9 @@ _AGENT_PROPS = (
 class Shapes:
     """Shape XML builders. Every dynamic code expression is also compile-checked."""
 
-    def __init__(self, ac: AgentClass):
+    def __init__(self, ac: AgentClass, font="SansSerif"):
         self.ac = ac
+        self.font = font            # default typeface of every text shape (a text can override it)
         self.ids = ac.model.ids
         self.n = itertools.count(1)
 
@@ -524,9 +525,20 @@ class Shapes:
         s += '<FillMaterial>null</FillMaterial>\n</Rectangle>'
         self.ac.shape(s)
 
-    def oval(self, x, y, r, fill="#9E9E9E", line="#333333", name=None, **dyn):
+    def rrect(self, x, y, w, h, fill="#FFFFFF", line=None, lw=1, radius=8, name=None, **dyn):
+        """Rounded rectangle (cards, tiles, header bar)."""
+        s, locs, name = self._head("RoundedRectangle", name, x, y, dyn)
+        s += (f'<ZHeight>10</ZHeight>\n<LineWidth>{lw}</LineWidth>\n'
+              + (f'<LineColor>{color(line)}</LineColor>\n' if line else '<LineColor/>\n')
+              + '<LineMaterial>null</LineMaterial>\n<LineStyle>SOLID</LineStyle>\n'
+              f'<Width>{w}</Width>\n<Height>{h}</Height>\n<Rotation>0.0</Rotation>\n'
+              + (f'<FillColor>{color(fill)}</FillColor>\n' if fill else '<FillColor/>\n')
+              + f'<FillMaterial>null</FillMaterial>\n<ArcRadius>{radius}</ArcRadius>\n</RoundedRectangle>')
+        self.ac.shape(s)
+
+    def oval(self, x, y, r, fill="#9E9E9E", line="#333333", lw=1, name=None, **dyn):
         s, locs, name = self._head("Oval", name, x, y, dyn)
-        s += (f'<ZHeight>10</ZHeight>\n<LineWidth>1</LineWidth>\n<LineColor>{color(line)}</LineColor>\n'
+        s += (f'<ZHeight>10</ZHeight>\n<LineWidth>{lw}</LineWidth>\n<LineColor>{color(line)}</LineColor>\n'
               '<LineMaterial>null</LineMaterial>\n<LineStyle>SOLID</LineStyle>\n'
               f'<RadiusX>{r}</RadiusX>\n<RadiusY>{r}</RadiusY>\n<Rotation>0.0</Rotation>\n<FillColor>{color(fill)}</FillColor>\n')
         if dyn.get("FillColorCode"):
@@ -535,7 +547,7 @@ class Shapes:
         s += '<FillMaterial>null</FillMaterial>\n</Oval>'
         self.ac.shape(s)
 
-    def text(self, x, y, txt, size=12, bold=False, col="#263238", align="LEFT", name=None, **dyn):
+    def text(self, x, y, txt, size=12, bold=False, col="#263238", align="LEFT", name=None, font=None, **dyn):
         s, locs, name = self._head("Text", name, x, y, dyn, draw="SHAPE_DRAW_2D3D")
         s += f'<Rotation>0.0</Rotation>\n<Color>{color(col)}</Color>\n'
         if dyn.get("ColorCode"):
@@ -545,7 +557,7 @@ class Shapes:
         if dyn.get("TextCode"):
             s += f'<TextCode>{cd(dyn["TextCode"])}</TextCode>\n'
             self.ac.code_check("Object", dyn["TextCode"], f"{name}.TextCode", locs)
-        s += (f'<Font>\n<Name>SansSerif</Name>\n<Size>{size}</Size>\n<Style>{1 if bold else 0}</Style>\n</Font>\n'
+        s += (f'<Font>\n<Name>{font or self.font}</Name>\n<Size>{size}</Size>\n<Style>{1 if bold else 0}</Style>\n</Font>\n'
               f'<Alignment>{align}</Alignment>\n</Text>')
         self.ac.shape(s)
 
@@ -600,15 +612,17 @@ class Shapes:
             '<LimitNumberOfTransportersValue>10</LimitNumberOfTransportersValue>\n</Path>')
         self.ac.shadow.field(self.ac.name, f"public Path {name};")
 
-    def time_plot(self, name, x, y, w, h, series, window=7200, recurrence=60, vmax=None):
-        """series: list of (title, expression, '#color')."""
+    def time_plot(self, name, x, y, w, h, series, window=7200, recurrence=60, vmax=None, area="#FFFFFF",
+                  border="#000000", grid="#CCCCCC", text="#404040", legend_text="#000000", label_format="MODEL_TIME_UNITS",
+                  line_width=2.0):
+        """series: list of (title, expression, '#color'). Colours style the chart area, its border, grid and labels."""
         ds = []
         for title, expr, col in series:
             self.ac.code_check("double", expr, f"{name}.{title}")
             ds.append(f'<DatasetExpression>\n<Title>{cd(title)}</Title>\n<Id>{self.ids()}</Id>\n'
                       f'<Expression>{cd("_ds_" + name + str(len(ds)))}</Expression>\n<Color>{color(col)}</Color>\n'
                       f'<Expression2>{cd(expr)}</Expression2>\n<Expression2Flag>true</Expression2Flag>\n'
-                      '<PointStyle>NONE</PointStyle>\n<LineWidth>2.0</LineWidth>\n</DatasetExpression>\n')
+                      f'<PointStyle>NONE</PointStyle>\n<LineWidth>{line_width}</LineWidth>\n</DatasetExpression>\n')
         vs = ("FIXED", 0, vmax) if vmax else ("AUTO", 0, 1)
         self.ac.shape(
             f'<TimePlot>\n<Id>{self.ids()}</Id>\n<Name>{cd(name)}</Name>\n<X>{x}</X><Y>{y}</Y>\n'
@@ -621,13 +635,14 @@ class Shapes:
             '</RecurrenceProperties>\n'
             f'<EmbeddedIcon>false</EmbeddedIcon>\n<Width>{w}</Width>\n<Height>{h}</Height>\n<BackgroundColor/>\n<BorderColor/>\n'
             f'<ChartArea>\n<XOffset>50</XOffset>\n<YOffset>20</YOffset>\n<Width>{w - 70}</Width>\n<Height>{h - 80}</Height>\n'
-            '<BackgroundColor>-1</BackgroundColor>\n<BorderColor>-16777216</BorderColor>\n<GridColor>-3355444</GridColor>\n</ChartArea>\n'
-            '<Legend>\n<Place>SOUTH</Place>\n<TextColor>-16777216</TextColor>\n<Size>30</Size>\n</Legend>\n'
+            f'<BackgroundColor>{color(area)}</BackgroundColor>\n<BorderColor>{color(border)}</BorderColor>\n<GridColor>{color(grid)}</GridColor>\n</ChartArea>\n'
+            f'<Legend>\n<Place>SOUTH</Place>\n<TextColor>{color(legend_text)}</TextColor>\n<Size>30</Size>\n</Legend>\n'
             '<Labels>\n<HorLabelsPosition>DEFAULT</HorLabelsPosition>\n<VerLabelsPosition>DEFAULT</VerLabelsPosition>\n'
-            '<TextColor>-12566464</TextColor>\n</Labels>\n<ShowLegend>true</ShowLegend>\n'
+            f'<TextColor>{color(text)}</TextColor>\n</Labels>\n<ShowLegend>true</ShowLegend>\n'
             '<TimeWindowsMovementType>MOVEMENT_WITH_DATA</TimeWindowsMovementType>\n<TimeWindowUnits>MODEL_TIME_UNIT</TimeWindowUnits>\n'
             f'<VerScaleFromExpression>{cd(vs[1])}</VerScaleFromExpression>\n<VerScaleToExpression>{cd(vs[2])}</VerScaleToExpression>\n'
             f'<VerScaleType>{vs[0]}</VerScaleType>\n<DrawLine>true</DrawLine>\n<Interpolation>LINEAR</Interpolation>\n'
             + "".join(ds) +
             f'<SamplesToKeep>{int(window / recurrence) + 5}</SamplesToKeep>\n<TimeWindowExpression>{cd(window)}</TimeWindowExpression>\n'
-            '<FillAreaUnderLine>false</FillAreaUnderLine>\n<LabelFormat>MODEL_TIME_UNITS</LabelFormat>\n</TimePlot>')
+            '<FillAreaUnderLine>false</FillAreaUnderLine>\n'
+            f'<LabelFormat>{label_format}</LabelFormat>\n</TimePlot>')

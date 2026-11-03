@@ -25,8 +25,77 @@ PACKAGE = "warehousesim"
 NAME = "WarehouseSim"
 CORE = ["Json", "Dist", "RunConfig", "LayoutData", "PathGraph", "Router", "ScenarioData", "Inventory",
         "Stats", "Warehouse", "Kpi"]          # RefSim is the reference simulator and stays outside the model
-STOP_TIME = 400000                           # experiments stop at Main.finishRun() (= horizon_s); this is a backstop
+# experiments stop 60 s after the end of the day (horizon_s, when Main.finishRun() writes the KPIs and stops the run),
+# so the progress bar spans exactly one day
+STOP_TIME = int(__import__("json").loads((ROOT / "model" / "WarehouseSim" / "data" / "config" / "run_config.json")
+                                         .read_text())["horizon_s"]) + 60
 MAX_DOTS = 80                                # worker dots drawn
+# model start date: 2025-10-06 06:00 IST (charts show the clock; the animated run resets it to 06:00 local time)
+START_MS = 1759708800000 + 30 * 60 * 1000
+
+# ---- screen design: one typeface, one accent colour, status colours only where a KPI is good / bad
+UI_FONT = "Roboto"       # nominal; Main.pickFont() swaps in the first installed of FONTS at start-up
+FONTS = ["Roboto", "Segoe UI", "Lato", "Open Sans", "Noto Sans", "Helvetica Neue", "Arial"]
+PAGE, CARD, LINE, SHADOW = "#F3F5F8", "#FFFFFF", "#E2E6EC", "#E6E9EE"
+INK, MUTED, HEADER = "#1F2937", "#6B7280", "#1E293B"
+ACCENT, GOOD, WARN, BAD = "#2563EB", "#16A34A", "#D97706", "#DC2626"
+PAGE_W = 1410
+TILE_Y, TILE_W, TILE_H, TILE_GAP = 68, 128, 84, 10
+FLOOR_X, FLOOR_Y = 20, 164                   # warehouse floor card (sized at start-up to the layout)
+FLOOR_W, FLOOR_H = 890, 640                  # largest picture of the layout; the card ends above the flowchart
+CHART_X, CHART_W = 950, 440
+FLOW_Y0 = 1000                               # the process flowchart starts here
+COL = dict(PAGE=PAGE, CARD=CARD, LINE=LINE, SHADOW=SHADOW, INK=INK, MUTED=MUTED, HEADER=HEADER, ACCENT=ACCENT,
+           GOOD=GOOD, WARN=WARN, BAD=BAD, IDLE="#9E9E9E")
+# end-of-day panel / console table: (label, Java expression on Main.endS = Kpi.summary(...))
+END_ROWS = [
+    ("Orders shipped", 'String.format("%d of %d arrived", (int) endD("orders_shipped"), (int) endD("orders_arrived"))'),
+    ("Average fulfilment (arrival to packed)", 'String.format("%.1f min", endD("fulfil_mean_s") / 60)'),
+    ("95th percentile fulfilment", 'String.format("%.1f min", endD("fulfil_p95_s") / 60)'),
+    ("On time (packed by its cut-off)", 'String.format("%.1f %%", endD("on_time_pct"))'),
+    ("Walk per picked order", 'String.format("%.1f m", endD("pick_m_per_order"))'),
+    ("Total picking walk", 'String.format("%.2f km", endD("pick_m_total") / 1000)'),
+    ("Carts", 'String.format("%d  (%.1f orders per cart)", (int) endD("tours"), endD("orders_per_tour"))'),
+    ("Orders held for stock", 'String.valueOf((int) endD("held_orders"))'),
+    ("Utilisation: pickers / packers", 'String.format("%.0f %% / %.0f %%", 100 * endD("util_pick"), 100 * endD("util_pack"))'),
+    ("Utilisation: receivers / putaway", 'String.format("%.0f %% / %.0f %%", 100 * endD("util_recv"), 100 * endD("util_put"))'),
+]
+
+
+def jcolor(hexcol):
+    return f"new Color(0x{hexcol.lstrip('#')})"
+
+
+def jstr(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def layout_names():
+    """layout id -> (title, detail) in plain words, from data/config/designs.json, whose order is
+    as-is x 4 storage policies, then the recommended and the runner-up design (whsim.optimize)."""
+    import json
+    data = ROOT / "model" / "WarehouseSim" / "data"
+    designs = json.loads((data / "config" / "designs.json").read_text())["designs"]
+    files = [ln.strip() for ln in (data / "layouts" / "index.txt").read_text().split() if ln.strip()]
+    storage = {"asis": "storage as recorded in the WMS", "random": "random storage",
+               "class": "class-based storage (A/B/C zones)", "abc": "ABC storage by turnover"}
+    base = designs[0]
+    redesign = iter(["Recommended layout", "Runner-up layout"])
+    out = {}
+    for d, f in zip(designs, files):
+        same = d["depot"] == base["depot"] and not d["cross_aisles"]
+        if same:
+            title = "As-is layout, real storage" if d["slotting"] == "asis" else \
+                "As-is building, " + storage[d["slotting"]].split(" (")[0]
+        else:
+            title = next(redesign, "Candidate layout")
+        ca = d["cross_aisles"]
+        detail = (f"picker depot at ({d['depot'][0]:g}, {d['depot'][1]:g}) m  ·  "
+                  + (f"{len(ca)} extra cross aisle{'s' if len(ca) > 1 else ''} at x = {', '.join(f'{x:g}' for x in ca)} m"
+                     if ca else "no extra cross aisles")
+                  + f"  ·  {storage.get(d['slotting'], d['slotting'])}  ·  {d['n_pack']} packing stations")
+        out[f.removesuffix(".json")] = (title, detail)
+    return out
 
 
 def core_java():
@@ -100,6 +169,7 @@ def build():
         ("nPutaway", "int", "-1"),
         ("cartUnits", "int", "-1"),
         ("writeOrders", "boolean", "true"),
+        ("skipQuietStart", "boolean", "true"),
         ("resultsDir", "String", '"results"'),
     ]:
         P[name] = main.parameter(name, jt, default, 1450, next(y))
@@ -115,15 +185,20 @@ def build():
         ("layoutPath", "String", '""'),
         ("scenarioPath", "String", '""'),
         ("px", "double", "10"),
-        ("ox", "double", "20"),
-        ("oy", "double", "160"),
+        ("ox", "double", str(FLOOR_X + 14)),
+        ("oy", "double", str(FLOOR_Y + 52)),
         ("nArrived", "int", "0"),
         ("nPicked", "int", "0"),
         ("nPacked", "int", "0"),
         ("nShipped", "int", "0"),
         ("nTours", "int", "0"),
+        ("animScale", "double", "60"),
         ("pending", "ArrayList<Order>", "new ArrayList<Order>()"),
         ("done", "boolean", "false"),
+        ("uiFont", "String", '"SansSerif"'),
+        ("liveT", "double", "-1"),
+        ("liveV", "double[]", "null"),
+        ("endS", "Map<String, Object>", "null"),
     ]:
         main.plain_var(name, jt, init, 1650, next(vy))
     # the generated agent class has this field; the shadow class needs it to compile the drawing code
@@ -132,6 +207,7 @@ def build():
     fy = iter(range(20, 2000, 22))
 
     def fn(name, ret, args, body, doc=""):
+        body = re.sub(r"\bC_([A-Z]+)\b", lambda mo: jcolor(COL[mo.group(1)]), body)     # palette colours
         main.function(name, ret, args, body.strip("\n"), 1850, next(fy), doc=doc)
 
     fn("setup", None, [], r"""
@@ -184,6 +260,16 @@ for (ScenarioData.OrderSpec s : wh.scenario.orders) orderIn.take(new Order(s));
 for (ScenarioData.ReceiptSpec s : wh.scenario.receipts) receiptIn.take(new Receipt(s));
 dayClockIn.take(new DayClock());
 tickIn.take(new Ticker());
+// animation: nothing happens before the first WMS release (often ~07:30), so fast-forward to 5 min before it
+// (only in a real-time run, i.e. the animated Simulation experiment; the experiments without animation are untouched)
+if (skipQuietStart && getEngine().getRealTimeMode() && !wh.scenario.orders.isEmpty()
+		&& wh.scenario.orders.get(0).t - 300 > time()) {
+	animScale = getEngine().getRealTimeScale();
+	getEngine().setRealTimeMode(false);
+	wakeIn.take(new DayClock());
+	traceln(String.format("fast-forwarding to %02d:%02d (5 min before the first order release)",
+		6 + (int) (wh.scenario.orders.get(0).t - 300) / 3600, (int) (wh.scenario.orders.get(0).t - 300) % 3600 / 60));
+}
 traceln("WarehouseSim: layout " + wh.layout.id + " (" + layoutPath + "), " + wh.scenario.orders.size() + " orders and "
 	+ wh.scenario.receipts.size() + " receipt lines from " + scenarioPath + ", seed " + seed
 	+ ", staff pick/pack/receive/putaway = " + staff[0] + "/" + staff[1] + "/" + staff[2] + "/" + staff[3]);
@@ -244,7 +330,13 @@ if (a.plan == null) {       // plan once (the delay time may be evaluated more t
 		kpi.pickStarted(o.spec, time());
 	}
 	a.plan = wh.planBatch(specs, time());
+	// the picker this cart seized (asked from the pool, so it does not depend on callback order)
+	if (a.picker == null) a.picker = (Worker) a.resourceUnitOfPool(pickerPool);
 	if (a.picker != null) a.picker.motion = a.plan.motion;
+	if (nTours == 0 && pickerPool.busy() == 1)
+		traceln(String.format("first cart at %02d:%02d: %d orders, %d stops, %.0f m, %.0f s, picker %s",
+			6 + (int) time() / 3600, (int) time() % 3600 / 60, a.orders.size(), a.plan.stops, a.plan.length, a.plan.duration,
+			a.picker == null ? "NOT FOUND (no animation)" : "#" + (a.picker.k + 1)));
 }
 return a.plan.duration;
 """, "Plans the cart's tour (depot -> all its slots -> packing station -> depot); returns its duration in seconds.")
@@ -279,6 +371,7 @@ kpi.orderShipped(a.spec, time());
 if (a.put == null) {
 	kpi.putawayStarted(a.spec, time());
 	a.put = wh.planPutaway(a.spec, time());
+	if (a.worker == null) a.worker = (Worker) a.resourceUnitOfPool(putawayPool);
 	if (a.worker != null) a.worker.motion = a.put.motion;
 }
 return a.put.duration;
@@ -300,11 +393,19 @@ for (int k = 0; k < 4; k++) util[k] = busy[k].mean(T) / staff[k];
 Map<String, Object> s = kpi.summary(T, new java.io.File(scenarioPath).getName(), staff, util);
 Kpi.appendSummary(resultsDir + "/runs.csv", s);
 if (writeOrders) kpi.writeOrders(resultsDir + "/orders_" + wh.layout.id + "_s" + seed + ".csv");
+endS = s;                                  // shown by the end-of-day panel
+StringBuilder tb = new StringBuilder();
+String rule = "+" + "-".repeat(66) + "+";
+tb.append(rule).append(String.format("%n| %-64s |%n| %-64s |%n", "End of day: " + layoutTitle(),
+	wh.layout.id + ", " + new java.io.File(scenarioPath).getName() + ", seed " + seed)).append(rule);
+for (int i = 0; i < END_ROWS_N; i++) tb.append(String.format("%n| %-38s %25s |", endLabel(i), endText(i)));
+tb.append(String.format("%n")).append(rule).append(String.format("%n  appended to %s/runs.csv", resultsDir));
+traceln(tb.toString());
 traceln(String.format("WarehouseSim done: %s seed %d | shipped %s of %s | fulfil mean %.0f s, p95 %.0f s | on time %.1f%% | pick %.1f m/order | util pick %.2f pack %.2f recv %.2f put %.2f",
 	wh.layout.id, seed, Kpi.fmt(s.get("orders_shipped")), Kpi.fmt(s.get("orders_arrived")), (Double) s.get("fulfil_mean_s"),
 	(Double) s.get("fulfil_p95_s"), (Double) s.get("on_time_pct"), (Double) s.get("pick_m_per_order"), util[0], util[1], util[2], util[3]));
 finishSimulation();
-""", "End of the day (horizon_s): writes results/runs.csv (+ the per-order file) and stops the run.")
+""".replace("END_ROWS_N", str(len(END_ROWS))), "End of the day (horizon_s): writes results/runs.csv (+ the per-order file) and stops the run.")
 
     # ---- drawing (runtime-built picture of the layout)
     fn("cellColor", "Color", [("String", "t")], """
@@ -328,10 +429,28 @@ switch (t) {
 
     fn("drawLayout", None, [], """
 if (presentation == null) return;          // no animation in this experiment
+pickFont();
+// the charts label their time axis with the clock: model time 0 = 06:00 of the simulated day (local time zone)
+try {
+	Calendar c = Calendar.getInstance();
+	c.setTime(getEngine().getStartDate());
+	c.set(Calendar.HOUR_OF_DAY, 6); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
+	getEngine().setStartDate(c.getTime());
+} catch (RuntimeException e) {
+	traceln("chart clock labels: start date kept (" + e.getMessage() + ")");
+}
 LayoutData L = wh.layout;
-px = Math.min(900.0 / L.widthM(), 700.0 / L.heightM());
+px = Math.min(FLOOR_W / L.widthM(), FLOOR_H / L.heightM());
+double W = L.widthM() * px, H = L.heightM() * px;
 double cw = L.cellW * px, ch = L.cellH * px;
-int k = 0;                                 // insert at the bottom so the worker dots stay on top
+int k = 0;                                 // insert at the bottom so the dashboard and the worker dots stay on top
+// page background and the floor card (the card fits the layout picture + its key)
+presentation.insert(k++, box(0, 0, PAGE_W, PAGE_H, C_PAGE, null, 0));
+presentation.insert(k++, box(FLOOR_X, FLOOR_Y + 2, W + 28, H + 124, C_SHADOW, null, 10));
+presentation.insert(k++, box(FLOOR_X, FLOOR_Y, W + 28, H + 124, C_CARD, C_LINE, 10));
+presentation.insert(k++, label(ox, FLOOR_Y + 10, "Warehouse floor", C_INK, 14, true));
+presentation.insert(k++, label(ox, FLOOR_Y + 30, String.format("%d x %d cells of %.2f x %.2f m  \\u00b7  %d storage slots  \\u00b7  layout %s",
+	L.cols, L.rows, L.cellW, L.cellH, L.slotId.length, L.id), C_MUTED, 10, false));
 for (int r = 0; r < L.rows; r++) {
 	for (int q = 0; q < L.cols; q++) {
 		ShapeRectangle s = new ShapeRectangle();
@@ -345,23 +464,88 @@ for (int r = 0; r < L.rows; r++) {
 }
 for (LayoutData.Facility f : L.facilities) {
 	if (f.type.equals("R") || f.type.equals("G")) continue;
-	ShapeText t = new ShapeText();
-	t.setPos(sx(f.x), sy(f.y) - 4);
-	t.setText(f.id);
-	t.setColor(Color.WHITE);
-	t.setFont(new Font("SansSerif", Font.BOLD, 8));
+	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, Color.WHITE, 8, true);
 	t.setAlignment(ALIGNMENT_CENTER);
 	presentation.insert(k++, t);
 }
-ShapeText title = new ShapeText();
-title.setPos(ox, oy + L.heightM() * px + 6);
-title.setText("Layout " + L.id + "\\n" + L.cols + " x " + L.rows + " cells of " + String.format("%.2f x %.2f", L.cellW, L.cellH)
-	+ " m, " + L.slotId.length + " slots, slotting " + L.slotting + "\\ngrey = aisle, brown = shelf, green DI = inbound dock, "
-	+ "blue DO = outbound dock,\\nyellow = receiving, orange PK = packing, purple = staging, teal H = picker depot");
-title.setColor(new Color(69, 90, 100));
-title.setFont(new Font("SansSerif", Font.PLAIN, 11));
-presentation.insert(k++, title);
-""", "Draws the layout read from the JSON file (cells, facility labels).")
+// key: what the cell colours and the worker dots mean
+String[] cell = {"A", "S", "#", "DI", "R", "PK", "G", "DO", "H"};
+String[] cellName = {"aisle", "shelf", "wall", "inbound dock", "receiving", "packing station", "staging", "outbound dock", "picker depot"};
+double y = oy + H + 14, x = ox;
+presentation.insert(k++, label(x, y - 1, "Floor", C_MUTED, 10, true));
+x += 48;
+for (int i = 0; i < cell.length; i++) {
+	presentation.insert(k++, box(x, y, 11, 11, cellColor(cell[i]), new Color(0xCFD6DE), 2));
+	presentation.insert(k++, label(x + 16, y - 1, cellName[i], C_INK, 10, false));
+	x += 16 + 5.6 * cellName[i].length() + 18;
+}
+y += 22; x = ox;
+presentation.insert(k++, label(x, y - 1, "Workers", C_MUTED, 10, true));
+x += 48;
+String[] who = {"picker", "packer", "receiver", "putaway", "idle (any role)"};
+for (int i = 0; i < who.length; i++) {
+	ShapeOval o = new ShapeOval();
+	o.setPos(x + 5.5, y + 5.5);
+	o.setRadius(5.5);
+	o.setFillColor(i < 4 ? roleColor(i) : C_IDLE);
+	o.setLineColor(Color.WHITE);
+	o.setLineWidth(1.5);
+	presentation.insert(k++, o);
+	presentation.insert(k++, label(x + 16, y - 1, who[i], C_INK, 10, false));
+	x += 16 + 5.6 * who[i].length() + 18;
+}
+""".replace("FLOOR_W", f"{FLOOR_W:.1f}").replace("FLOOR_H", f"{FLOOR_H:.1f}").replace("FLOOR_X", str(FLOOR_X))
+       .replace("FLOOR_Y", str(FLOOR_Y)).replace("PAGE_W", str(PAGE_W)).replace("PAGE_H", str(FLOW_Y0 - 70)),
+       "Draws the layout read from the JSON file (page background, floor card, cells, facility labels, colour key).")
+
+    fn("box", "ShapeRoundedRectangle", [("double", "x"), ("double", "y"), ("double", "w"), ("double", "h"), ("Color", "fill"),
+                                        ("Color", "line"), ("double", "radius")], """
+ShapeRoundedRectangle s = new ShapeRoundedRectangle();
+s.setPos(x, y);
+s.setSize(w, h);
+s.setRadius(radius);
+s.setFillColor(fill);
+s.setLineColor(line);
+s.setLineWidth(line == null ? 0 : 1);
+return s;
+""", "A filled (rounded) rectangle for the runtime-drawn picture; line null = no outline.")
+
+    fn("label", "ShapeText", [("double", "x"), ("double", "y"), ("String", "text"), ("Color", "c"), ("int", "size"),
+                              ("boolean", "bold")], """
+ShapeText t = new ShapeText();
+t.setPos(x, y);
+t.setText(text);
+t.setColor(c);
+t.setFont(new Font(uiFont, bold ? Font.BOLD : Font.PLAIN, size));
+return t;
+""", "A text in the dashboard typeface.")
+
+    fn("pickFont", None, [], """
+// one typeface for the whole screen: the first of these that is installed (Linux and Windows have different ones)
+String[] want = FONTS;
+Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+for (String f : want) {
+	if (have.contains(f)) {
+		uiFont = f;
+		break;
+	}
+}
+restyle(presentation);
+""".replace("FONTS", "{" + ", ".join(jstr(f) for f in FONTS) + "}"),
+       "Chooses the dashboard typeface and applies it to every text drawn by the model.")
+
+    fn("restyle", None, [("ShapeGroup", "g")], """
+for (int i = 0; i < g.size(); i++) {
+	Object o = g.get(i);
+	if (o instanceof ShapeText) {
+		ShapeText t = (ShapeText) o;
+		Font f = t.getFont();
+		if (f != null) t.setFont(new Font(uiFont, f.getStyle(), f.getSize()));
+	} else if (o instanceof ShapeGroup) {
+		restyle((ShapeGroup) o);
+	}
+}
+""")
 
     fn("homeXY", "double[]", [("Worker", "u")], """
 LayoutData L = wh.layout;
@@ -385,28 +569,134 @@ return new double[]{sx(p[0] + off), sy(p[1] + off)};
 
     fn("workerVisible", "boolean", [("int", "i")], "return wh != null && i < workers.size();")
 
+    fn("roleColor", "Color", [("int", "role")], """
+switch (role) {
+	case 0: return new Color(229, 57, 53);     // picker
+	case 1: return new Color(255, 111, 0);     // packer
+	case 2: return new Color(253, 216, 53);    // receiver
+	default: return new Color(30, 136, 229);   // putaway
+}
+""")
+
     fn("workerColor", "Color", [("int", "i")], """
 Worker u = workers.get(i);
-Color[] busyC = {new Color(229, 57, 53), new Color(255, 111, 0), new Color(253, 216, 53), new Color(30, 136, 229)};
-return u.busyNow ? busyC[u.role] : new Color(158, 158, 158);
+return u.busyNow ? roleColor(u.role) : C_IDLE;
 """)
 
-    fn("statusText", "String", [], """
-if (wh == null) return "loading ...";
+    # ---- dashboard: header, KPI tiles, end-of-day panel (values from the live model state)
+    names = layout_names()
+    fn("layoutTitle", "String", [], "if (wh == null) return \"loading ...\";\nswitch (wh.layout.id) {\n"
+       + "".join(f"\tcase {jstr(i)}: return {jstr(t)};\n" for i, (t, _) in names.items())
+       + "\tdefault: return \"Layout \" + wh.layout.id;\n}", "The layout in plain words (from data/config/designs.json).")
+    fn("layoutDetail", "String", [], "if (wh == null) return \"\";\nswitch (wh.layout.id) {\n"
+       + "".join(f"\tcase {jstr(i)}: return {jstr(d)};\n" for i, (_, d) in names.items())
+       + "\tdefault: return \"slotting \" + wh.layout.slotting;\n}")
+
+    fn("clockText", "String", [], """
 long t = (long) time();
-return String.format("%s   seed %d   day file %s%n"
-	+ "clock %02d:%02d:%02d (day ends at %s s)%n"
-	+ "orders: arrived %d   held now %d   waiting for a cart %d   picked %d (%d carts)   packed %d   shipped %d   in system %d%n"
-	+ "busy: pickers %d/%d   packers %d/%d   receivers %d/%d   putaway %d/%d%n"
-	+ "receiving buffer %d / %d lines   staging %d orders   stock on hand %d units",
-	wh.layout.id, seed, scenarioPath, t / 3600, (t / 60) % 60, t % 60, Kpi.fmt(wh.cfg.horizon),
-	nArrived, (int) kpi.held.value(), pending.size(), nPicked, nTours, nPacked, nShipped, (int) kpi.inSystem.value(),
-	pickerPool.busy(), staff[0], packerPool.busy(), staff[1], receiverPool.busy(), staff[2], putawayPool.busy(), staff[3],
-	(int) kpi.recvBuffer.value(), wh.recvBufferCapacity(), (int) kpi.staging.value(), wh.inv.totalOnHand());
+return String.format("%02d:%02d", (6 + t / 3600) % 24, (t / 60) % 60);
+""", "Time of day (model time 0 = 06:00).")
+
+    fn("dayText", "String", [], """
+if (wh == null) return "";
+String day = new java.io.File(scenarioPath).getName().replace(".csv", "").replace("_", " ");
+String mode = !done && time() > 0 && !getEngine().getRealTimeMode() ? "fast-forwarding the quiet morning  \\u00b7  " : "";
+return mode + day + "  \\u00b7  seed " + seed + "  \\u00b7  06:00 to " + clockOf(wh.cfg.horizon);
 """)
+
+    fn("clockOf", "String", [("double", "t")], """
+long s = (long) t;
+return String.format("%02d:%02d", (6 + s / 3600) % 24, (s / 60) % 60);
+""")
+
+    fn("dayProgress", "double", [], "return wh == null ? 0 : Math.max(0, Math.min(1, time() / wh.cfg.horizon));")
+
+    fn("liveKpi", "double[]", [], """
+// {mean fulfilment so far (min), on time so far (%), orders due so far, orders ever held}; computed once per time
+if (kpi == null) return new double[]{Double.NaN, Double.NaN, 0, 0};
+double t = time();
+if (liveV != null && t == liveT) return liveV;
+double sum = 0;
+int n = 0, due = 0, ok = 0, everHeld = 0;
+for (int i = 0; i < kpi.oArr.length; i++) {
+	if (Double.isNaN(kpi.oArr[i])) continue;
+	if (kpi.oHeld[i]) everHeld++;
+	if (!Double.isNaN(kpi.oPacked[i])) {
+		sum += kpi.oPacked[i] - kpi.oArr[i];
+		n++;
+	}
+	if (kpi.oDue[i] <= t) {          // due at a cut-off that has passed (as in Kpi.summary)
+		due++;
+		if (!Double.isNaN(kpi.oPacked[i]) && kpi.oPacked[i] <= kpi.oDue[i]) ok++;
+	}
+}
+liveT = t;
+liveV = new double[]{n > 0 ? sum / n / 60 : Double.NaN, due > 0 ? 100.0 * ok / due : Double.NaN, due, everHeld};
+return liveV;
+""", "Running KPIs for the tiles and charts.")
+
+    fn("walkPerOrder", "double", [], "return kpi == null || kpi.tourOrders == 0 ? Double.NaN : kpi.tourM / kpi.tourOrders;",
+       "Picking walk per picked order so far (m) = the orders' share of their carts' tours.")
+    fn("utilSoFar", "double", [("int", "k")], "return time() > 0 && staff[k] > 0 ? busy[k].mean(time()) / staff[k] : 0;",
+       "Utilisation of role k since 06:00 (0 pickers, 1 packers, 2 receivers, 3 putaway).")
+    fn("orZero", "double", [("double", "x")], "return Double.isNaN(x) ? 0 : x;")
+
+    fn("tileValue", "String", [("int", "i")], """
+if (wh == null) return "\\u2013";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return String.valueOf(nArrived);
+	case 1: return String.valueOf(nShipped);
+	case 2: return String.valueOf(pending.size());
+	case 3: return String.valueOf((int) kpi.held.value());
+	case 4: return String.valueOf(nTours);
+	case 5: return Double.isNaN(walkPerOrder()) ? "\\u2013" : String.format("%.0f m", walkPerOrder());
+	case 6: return Double.isNaN(v[0]) ? "\\u2013" : String.format("%.0f min", v[0]);
+	case 7: return Double.isNaN(v[1]) ? "\\u2013" : String.format("%.0f%%", v[1]);
+	case 8: return String.format("%.0f%%", 100 * utilSoFar(0));
+	default: return String.format("%.0f%%", 100 * utilSoFar(1));
+}
+""", "Big number of KPI tile i.")
+
+    fn("tileSub", "String", [("int", "i")], """
+if (wh == null) return "";
+double[] v = liveKpi();
+switch (i) {
+	case 0: return "of " + wh.scenario.orders.size() + " in the day";
+	case 1: return nPacked + " packed, " + (int) kpi.staging.value() + " staged";
+	case 2: return pickerPool.busy() + " carts out now";
+	case 3: return (int) v[3] + " held at some point";
+	case 4: return kpi.tours > 0 ? String.format("%.1f orders per cart", (double) kpi.tourOrders / kpi.tours) : "no cart back yet";
+	case 5: return String.format("%.1f km in total", kpi.tourM / 1000);
+	case 6: return "arrival to packed";
+	case 7: return (int) v[2] > 0 ? "of " + (int) v[2] + " due so far" : "no cut-off yet";
+	case 8: return "busy now " + pickerPool.busy() + " of " + staff[0];
+	default: return "busy now " + packerPool.busy() + " of " + staff[1];
+}
+""")
+
+    fn("tileColor", "Color", [("int", "i")], """
+if (wh == null) return C_INK;
+if (i == 3) return kpi.held.value() > 0 ? C_BAD : C_INK;
+if (i == 7) {
+	double p = liveKpi()[1];
+	return Double.isNaN(p) ? C_INK : p >= 95 ? C_GOOD : p >= 80 ? C_WARN : C_BAD;
+}
+return C_INK;
+""", "Status colour of a tile's number: only held orders and on-time % change colour.")
+
+    fn("endD", "double", [("String", "key")], """
+Object o = endS == null ? null : endS.get(key);
+return o instanceof Number ? ((Number) o).doubleValue() : Double.NaN;
+""")
+    fn("endLabel", "String", [("int", "i")], "switch (i) {\n"
+       + "".join(f"\tcase {i}: return {jstr(lab)};\n" for i, (lab, _) in enumerate(END_ROWS)) + "\tdefault: return \"\";\n}")
+    fn("endText", "String", [("int", "i")], "if (endS == null) return \"\";\nswitch (i) {\n"
+       + "".join(f"\tcase {i}: return {expr};\n" for i, (_, expr) in enumerate(END_ROWS)) + "\tdefault: return \"\";\n}",
+       "Value column of the end-of-day panel (and the console table).")
 
     # ------------------------------------------------------------------ flowchart
-    X0, Y0 = 40, 900
+    X0, Y0 = 40, FLOW_Y0
     xs = lambda i: X0 + 90 * i   # noqa: E731
     sec = lambda code: ("unit", code, "TimeUnits", "SECOND")   # noqa: E731
     # outbound
@@ -465,6 +755,14 @@ return String.format("%s   seed %d   day file %s%n"
                maximumCapacity=True, onExit="finishRun();")
     main.block("dayEnd", "Sink", xs(2), Y2, "DayClock")
     main.connect("dayClockIn", "out", "endOfDay", "in")
+    # animation only: back to the chosen real-time speed 5 min before the first order release
+    main.block("wakeIn", "Enter", xs(8), Y2, "DayClock")
+    main.block("wakeUp", "Delay", xs(9), Y2, "DayClock",
+               delayTime=sec("max(0, wh.scenario.orders.get(0).t - 300 - time())"), maximumCapacity=True,
+               onExit="getEngine().setRealTimeMode(true);\ngetEngine().setRealTimeScale(animScale);")
+    main.block("wakeOut", "Sink", xs(10), Y2, "DayClock")
+    main.connect("wakeIn", "out", "wakeUp", "in")
+    main.connect("wakeUp", "out", "wakeOut", "in")
     main.connect("endOfDay", "out", "dayEnd", "in")
     # wave release re-check every tick_s (orders that have waited max_wait_s get a cart)
     main.block("tickIn", "Enter", xs(4), Y2, "Ticker")
@@ -489,24 +787,81 @@ return String.format("%s   seed %d   day file %s%n"
     main.shadow.cls("Main")["extra"].append(core)
 
     # ------------------------------------------------------------------ presentation
-    sh = Shapes(main)
-    sh.text(20, 12, "Warehouse simulation - model generated at start-up from the layout JSON", size=20, bold=True, col="#1A237E")
-    sh.text(20, 44, "", size=12, col="#263238", name="status", TextCode="statusText()")
-    sh.oval(0, 0, 4, fill="#9E9E9E", line="#212121", name="workerDot", rep=str(MAX_DOTS),
+    # static dashboard (the floor card, the layout picture and its key are drawn at start-up by drawLayout(), under these)
+    sh = Shapes(main, font=UI_FONT)
+    # header bar: title, layout in plain words, clock, day progress
+    sh.rect(0, 0, PAGE_W, 56, fill=HEADER, line=None, name="headerBar")
+    sh.text(24, 8, "Footwear warehouse  ·  one-day simulation", size=19, bold=True, col="#FFFFFF")
+    sh.text(24, 34, "", size=12, col="#CBD5E1", name="layoutName", TextCode='layoutTitle() + "     " + layoutDetail()')
+    sh.text(PAGE_W - 24, 4, "", size=24, bold=True, col="#FFFFFF", align="RIGHT", name="clock", TextCode="clockText()")
+    sh.text(PAGE_W - 24, 36, "", size=10, col="#94A3B8", align="RIGHT", name="dayInfo", TextCode="dayText()")
+    sh.rect(0, 53, PAGE_W, 3, fill="#334155", line=None, name="dayTrack")
+    sh.rect(0, 53, PAGE_W, 3, fill=ACCENT, line=None, name="dayBar", WidthCode=f"{PAGE_W} * dayProgress()")
+    # KPI tiles
+    tiles = ["Orders arrived", "Orders shipped", "Waiting for a cart", "Held, no stock", "Carts done",
+             "Walk per order", "Avg fulfilment", "On time so far", "Pickers busy", "Packers busy"]
+    for i, lab in enumerate(tiles):
+        x = FLOOR_X + i * (TILE_W + TILE_GAP)
+        sh.rrect(x, TILE_Y + 2, TILE_W, TILE_H, fill=SHADOW, radius=8)
+        sh.rrect(x, TILE_Y, TILE_W, TILE_H, fill=CARD, line=LINE, radius=8)
+        sh.text(x + 12, TILE_Y + 9, lab, size=11, col=MUTED)
+        sh.text(x + 12, TILE_Y + 25, "", size=22, bold=True, col=INK, name=f"tileValue{i}",
+                TextCode=f"tileValue({i})", ColorCode=f"tileColor({i})")
+        if i >= 8:          # utilisation since 06:00 as a bar
+            sh.rect(x + 12, TILE_Y + 56, TILE_W - 24, 5, fill="#E5E7EB", line=None)
+            sh.rect(x + 12, TILE_Y + 56, TILE_W - 24, 5, fill=ACCENT, line=None, name=f"tileBar{i}",
+                    WidthCode=f"{TILE_W - 24} * Math.min(1, utilSoFar({i - 8}))")
+            sh.text(x + 12, TILE_Y + 65, "", size=10, col=MUTED, TextCode=f"tileSub({i})")
+        else:
+            sh.text(x + 12, TILE_Y + 60, "", size=10, col=MUTED, TextCode=f"tileSub({i})")
+    # charts for comparing layouts (time axis = clock time)
+    style = dict(window=STOP_TIME, recurrence=300, area=CARD, border=LINE, grid="#EEF1F4", text=MUTED, legend_text=INK,
+                 label_format="MODEL_DATE_TIME_ONLY")
+    charts = [
+        ("Orders through the day", "cumulative count since 06:00", 164, 246, "throughput",
+         [("arrived", "nArrived", "#94A3B8"), ("picked", "nPicked", ACCENT), ("shipped", "nShipped", GOOD)]),
+        ("Work in progress", "orders / receipt lines waiting at each stage", 420, 246, "levels",
+         [("orders in system", "kpi == null ? 0 : kpi.inSystem.value()", ACCENT),
+          ("held (no stock)", "kpi == null ? 0 : kpi.held.value()", BAD),
+          ("in staging", "kpi == null ? 0 : kpi.staging.value()", "#7C3AED"),
+          ("receiving buffer", "kpi == null ? 0 : kpi.recvBuffer.value()", WARN)]),
+        ("Picking efficiency", "running averages: lower is better", 676, 244, "efficiency",
+         [("walk per order (m)", "orZero(walkPerOrder())", ACCENT),
+          ("fulfilment, arrival to packed (min)", "orZero(liveKpi()[0])", "#0D9488")]),
+    ]
+    for title, sub, cy, chh, name, series in charts:
+        sh.rrect(CHART_X, cy + 2, CHART_W, chh, fill=SHADOW, radius=10)
+        sh.rrect(CHART_X, cy, CHART_W, chh, fill=CARD, line=LINE, radius=10)
+        sh.text(CHART_X + 14, cy + 10, title, size=14, bold=True, col=INK)
+        sh.text(CHART_X + 14, cy + 30, sub, size=10, col=MUTED)
+        sh.time_plot(name, CHART_X + 4, cy + 44, CHART_W - 8, chh - 48, series, **style)
+    # worker dots (on top of the floor picture)
+    sh.oval(0, 0, 5.5, fill="#9E9E9E", line="#FFFFFF", lw=1.5, name="workerDot", rep=str(MAX_DOTS),
             VisibleCode="workerVisible(index)", XCode="workerXY(index)[0]", YCode="workerXY(index)[1]",
             FillColorCode="workerColor(index)")
-    sh.text(960, 160, "Worker dots: red = picker, orange = packer, yellow = receiver, blue = putaway (grey = idle).",
-            size=11, col="#455A64")
-    sh.time_plot("levels", 960, 190, 460, 300,
-                 [("orders in system", "kpi == null ? 0 : kpi.inSystem.value()", "#1565C0"),
-                  ("held (no stock)", "kpi == null ? 0 : kpi.held.value()", "#C62828"),
-                  ("in staging", "kpi == null ? 0 : kpi.staging.value()", "#6A1B9A"),
-                  ("receiving buffer", "kpi == null ? 0 : kpi.recvBuffer.value()", "#F9A825")],
-                 window=60000, recurrence=300)
-    sh.text(20, Y0 - 50, "Process flowchart (generic: the same for every layout)", size=16, bold=True, col="#37474F")
-    sh.text(20, Y0 - 28, "Outbound: arrive, stock check (hold if short), wait for a cart (wave release), cart tour by a picker, "
-            "pack, staging until cut-off, ship.   Inbound: arrive, receive, putaway trip, stock up (releases held orders).",
-            size=11, col="#546E7A")
+    # end-of-day results panel, over the floor once the day is done
+    ex, ey, ew = FLOOR_X + 150, FLOOR_Y + 72, 600
+    eh = 84 + 30 * len(END_ROWS) + 40
+    sh.rrect(ex - 2, ey + 4, ew + 4, eh, fill="#CBD2DA", radius=12, VisibleCode="done")
+    sh.rrect(ex, ey, ew, eh, fill=CARD, line=LINE, radius=12, VisibleCode="done")
+    sh.rect(ex, ey + 12, 4, 40, fill=ACCENT, line=None, VisibleCode="done")
+    sh.text(ex + 22, ey + 14, "End of day results", size=18, bold=True, col=INK, VisibleCode="done")
+    sh.text(ex + 22, ey + 40, "", size=12, col=MUTED, VisibleCode="done",
+            TextCode='layoutTitle() + "  ·  " + new java.io.File(scenarioPath).getName() + "  ·  seed " + seed')
+    for i in range(len(END_ROWS)):
+        ry = ey + 74 + 30 * i
+        if i % 2 == 0:
+            sh.rect(ex + 12, ry, ew - 24, 30, fill="#F6F8FA", line=None, VisibleCode="done")
+        sh.text(ex + 24, ry + 7, "", size=12, col=INK, VisibleCode="done", TextCode=f"endLabel({i})")
+        sh.text(ex + ew - 24, ry + 6, "", size=13, bold=True, col=INK, align="RIGHT", VisibleCode="done",
+                TextCode=f"endText({i})")
+    sh.text(ex + 24, ey + eh - 30, "Appended to results/runs.csv.  To compare, set Main.layoutFile to another layout "
+            "and run the same day again.", size=10, col=MUTED, VisibleCode="done")
+    # flowchart section
+    sh.text(20, Y0 - 52, "Process flowchart", size=16, bold=True, col=INK)
+    sh.text(20, Y0 - 30, "The same for every layout.  Outbound: arrive, stock check (hold if short), wait for a cart "
+            "(wave release), cart tour by a picker, pack, staging until cut-off, ship.   Inbound: arrive, receive, "
+            "putaway trip, stock up (releases held orders).", size=11, col=MUTED)
 
     # ------------------------------------------------------------------ experiments
     m.experiments = [
@@ -526,8 +881,8 @@ return String.format("%s   seed %d   day file %s%n"
 
 def _time_props():
     return (f'<ModelTimeProperties>\n<StopOption>{cd("Stop at specified time")}</StopOption>\n'
-            f'<InitialDate>{cd("1759708800000")}</InitialDate>\n<InitialTime>{cd("0.0")}</InitialTime>\n'
-            f'<FinalDate>{cd(str(1759708800000 + STOP_TIME * 1000))}</FinalDate>\n<FinalTime>{cd(f"{STOP_TIME:.1f}")}</FinalTime>\n'
+            f'<InitialDate>{cd(str(START_MS))}</InitialDate>\n<InitialTime>{cd("0.0")}</InitialTime>\n'
+            f'<FinalDate>{cd(str(START_MS + STOP_TIME * 1000))}</FinalDate>\n<FinalTime>{cd(f"{STOP_TIME:.1f}")}</FinalTime>\n'
             '</ModelTimeProperties>\n')
 
 
@@ -536,7 +891,7 @@ def _text(m, name, x, y, txt, size, code=None, bold=False):
             '<PublicFlag>true</PublicFlag>\n<PresentationFlag>true</PresentationFlag>\n<ShowLabel>false</ShowLabel>\n'
             '<DrawMode>SHAPE_DRAW_2D3D</DrawMode>\n<EmbeddedIcon>false</EmbeddedIcon>\n<Z>0</Z>\n<Rotation>0.0</Rotation>\n'
             f'<Color>-12490271</Color>\n<Text>{cd(txt)}</Text>\n' + (f'<TextCode>{cd(code)}</TextCode>\n' if code else '')
-            + f'<Font>\n<Name>SansSerif</Name>\n<Size>{size}</Size>\n<Style>{1 if bold else 0}</Style>\n</Font>\n'
+            + f'<Font>\n<Name>{UI_FONT}</Name>\n<Size>{size}</Size>\n<Style>{1 if bold else 0}</Style>\n</Font>\n'
             '<Alignment>LEFT</Alignment>\n</Text>\n')
 
 
@@ -551,7 +906,7 @@ def simulation_xml(m, main):
             '</Presentation>\n<Parameters>\n</Parameters>\n<PresentationProperties>\n<EnableZoomAndPanning>true</EnableZoomAndPanning>\n'
             f'<ExecutionMode>{cd("realTimeScaled")}</ExecutionMode>\n<Title>{cd(NAME + " : Simulation")}</Title>\n'
             '<EnableDeveloperPanel>true</EnableDeveloperPanel>\n<ShowDeveloperPanelOnStart>false</ShowDeveloperPanelOnStart>\n'
-            '<RealTimeScale>120.0</RealTimeScale>\n</PresentationProperties>\n' + _time_props() +
+            '<RealTimeScale>60.0</RealTimeScale>\n</PresentationProperties>\n' + _time_props() +
             '<BypassInitialScreen>true</BypassInitialScreen>\n</SimulationExperiment>\n')
 
 
