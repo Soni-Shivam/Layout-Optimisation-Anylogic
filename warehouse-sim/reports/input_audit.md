@@ -55,7 +55,7 @@ Passing at 5%: nbinom, gamma. The chosen negative binomial is confirmed by a tai
 
 ## D. Generator: large-sample check
 
-`input_analysis.md` §7 compares 30 synthetic days (seeds 1001..1030) with the real days and reports orders/day 156 vs 193 (KS p = 0.050). Here the same generator (`input_models.make_synthetic_day`) is run on 300 seeds (5001..5300).
+The first version of `input_analysis.md` §7 validated the generator on 30 synthetic days (seeds 1001..1030) and reported orders/day 156 vs 193 (KS p = 0.050), which looked like a bias. Here the same generator (`input_models.make_synthetic_day`) is run on 300 independent seeds (5001..5300).
 
 | per day | real mean (sd) | generator mean (sd) | generator mean 95% CI | KS p | mean of 30 days, 5–95% |
 |---|---|---|---|---|---|
@@ -65,7 +65,7 @@ Passing at 5%: nbinom, gamma. The chosen negative binomial is confirmed by a tai
 
 ![generator](figures/audit_generator.png)
 
-**Reading.** With 300 days the generator's mean volume (198) matches the real mean (193). A mean of 30 generator days falls anywhere in 163–237 (90% range), so the 156 in §7 is sampling noise of a small validation sample, not a bias. Recommendation: validate on ≥ 200 seeds (`VALID_SEEDS` in `input_report.py`) so the KS column reflects the model rather than the sample size.
+**Reading.** With 300 days the generator's mean volume (198) matches the real mean (193). A mean of 30 generator days falls anywhere in 163–237 (90% range), so the 156 in §7 was sampling noise of a small validation sample, not a bias. Even 200-seed blocks are noisy: seeds 1001..1200, 1201..1400 and 1401..1600 give orders/day KS p = 0.049, 0.88 and 0.44. `VALID_SEEDS` in `input_report.py` is therefore set to 1,000 days (seeds 1001..2000; orders/day 198 vs 193, KS p = 0.42).
 
 ## E. Baskets: stationarity, dependence and SKU-mix drift
 
@@ -85,6 +85,6 @@ Lines per operator-day for the 13 operators with at least 20 working days (1044 
 |---|---|---|
 | pick time per line | no pick timestamps in the data | stays assumed; sensitivity 8–20 s |
 | daily volume | NB marginal passes AD; days are independent day to day, with a month level | keep i.i.d. NB for one-day replications; peak scenarios from month means |
-| synthetic-day generator | unbiased over 300 days | raise VALID_SEEDS to ≥ 200 |
+| synthetic-day generator | unbiased over 300 days | validation now on 1,000 days (VALID_SEEDS) |
 | baskets | size and SKU mix vary by month; orders independent | keep ±3-day window bootstrap |
 | pickers | between-operator ICC 0.07 | optional picker-speed-factor sensitivity |

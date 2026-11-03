@@ -112,8 +112,8 @@ def main():
     A("| pick time / line, pack, receive, putaway | assumed | lognormal 12 s/line; triangular(40,60,120) s + 4 s/unit; varied x0.5 / x1.5 |")
     A("| inbound + opening stock | assumed | truck every 2 h, top-up rule; opening stock covers q90 of a selling day |")
     A("")
-    A("Validation of the workload generator (30 synthetic vs 167 real days): daily volume, lines, units, lines/order and the "
-      "burstiness of the releases are not significantly different (two-sample KS, see input_analysis.md section 7).")
+    A("Validation of the workload generator (1,000 synthetic vs 167 real days): daily volume, lines, units, lines/order and the "
+      "burstiness of the releases are not significantly different (two-sample KS, see input_analysis.md section 7; checks of the input assumptions in input_audit.md).")
     A("")
     A("![daily volume](figures/daily_volume.png)")
     A("")

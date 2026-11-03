@@ -153,7 +153,7 @@ Lines per order: mean 3.5, but max 340; 59.5% of orders have a single line. Unit
 ### 4.6 Staff
 6.6 operators active per day on average (range 1-11) -> **7 pickers as-is**.
 
-**Check of the generator.** 30 synthetic days vs 167 real days (two-sample KS): lines/day p = 0.353, units/day p = 0.299, lines/order p = 0.561, busiest-10-minute share p = 0.641 -> not distinguishable. Orders/day p = 0.050 (borderline; model mean 156.4 vs real 193.2). SKU popularity rank correlation rho = 0.85.
+**Check of the generator.** 1,000 synthetic days vs 167 real days (two-sample KS): orders/day p = 0.421 (model mean 198.3 vs real 193.2), lines/day p = 0.758, units/day p = 0.758, lines/order p = 0.206, busiest-10-minute share p = 0.978 -> not distinguishable. SKU popularity rank correlation rho = 0.99. (A first check on only 30 days gave orders/day 156 vs 193, p = 0.050; that was small-sample noise, see `reports/input_audit.md` section D.)
 
 **If the teacher asks...**
 - *Why not Poisson?* Variance is 88x the mean, and arrivals come in WMS batches. Poisson fails every test.
@@ -447,7 +447,7 @@ The optimizer's DES results (`results/opt/*_des.csv`) are the numbers to compare
 - Dock / packing area position is **assumed**.
 - **No congestion** between pickers; **one floor** only (Z1); nearest-neighbour routing is not optimal.
 - Extra cross aisles **lose storage slots** (capacity for growth shrinks).
-- The generator can't produce release patterns or SKU mixes never seen in 2023; 30 synthetic days is a small validation sample; orders/day KS p = 0.050 is borderline.
+- The generator can't produce release patterns or SKU mixes never seen in 2023.
 - Validation covers **walking distance** only.
 - Not yet verified inside the AnyLogic IDE (see section 15).
 - Next steps: measure real times and dock positions, re-run `whsim.optimize`, extend to floors Z2-Z4, add congestion.

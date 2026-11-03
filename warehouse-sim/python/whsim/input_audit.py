@@ -393,9 +393,10 @@ def write_report(R):
            "The chosen negative binomial is NOT confirmed by AD; see the discussion.") + "\n")
 
     add("## D. Generator: large-sample check\n")
-    add(f"`input_analysis.md` §7 compares {SMALL_N} synthetic days (seeds 1001..1030) with the real days and "
-        "reports orders/day 156 vs 193 (KS p = 0.050). Here the same generator (`input_models.make_synthetic_day`) is run on "
-        f"{D['n_synthetic']} seeds ({GEN_SEEDS.start}..{GEN_SEEDS.stop - 1}).\n")
+    add(f"The first version of `input_analysis.md` §7 validated the generator on {SMALL_N} synthetic days "
+        "(seeds 1001..1030) and reported orders/day 156 vs 193 (KS p = 0.050), which looked like a bias. Here the "
+        f"same generator (`input_models.make_synthetic_day`) is run on {D['n_synthetic']} independent seeds "
+        f"({GEN_SEEDS.start}..{GEN_SEEDS.stop - 1}).\n")
     rows = []
     for m, v in D["metrics"].items():
         rows.append({"per day": m, "real mean (sd)": f"{v['real_mean']:.1f} ({v['real_sd']:.1f})",
@@ -410,8 +411,9 @@ def write_report(R):
     add(f"**Reading.** With {D['n_synthetic']} days the generator's mean volume ({o['syn_mean']:.0f}) matches the real "
         f"mean ({o['real_mean']:.0f}). A mean of {SMALL_N} generator days falls anywhere in "
         f"{o['mean_of_30_days_p05_p95'][0]:.0f}–{o['mean_of_30_days_p05_p95'][1]:.0f} (90% range), so the 156 in "
-        "§7 is sampling noise of a small validation sample, not a bias. Recommendation: validate on ≥ 200 seeds "
-        "(`VALID_SEEDS` in `input_report.py`) so the KS column reflects the model rather than the sample size.\n")
+        "§7 was sampling noise of a small validation sample, not a bias. Even 200-seed blocks are noisy: seeds "
+        "1001..1200, 1201..1400 and 1401..1600 give orders/day KS p = 0.049, 0.88 and 0.44. `VALID_SEEDS` in "
+        "`input_report.py` is therefore set to 1,000 days (seeds 1001..2000; orders/day 198 vs 193, KS p = 0.42).\n")
 
     add("## E. Baskets: stationarity, dependence and SKU-mix drift\n")
     lm = ", ".join(f"{pd.Timestamp(2023, int(k), 1):%b} {v:.2f}" for k, v in E["lines_per_order_by_month"].items())
@@ -459,7 +461,7 @@ def write_report(R):
                                              f"{'independent day to day, with a month level' if dep else 'independent'}",
          "action": "keep i.i.d. NB for one-day replications; peak scenarios from month means"},
         {"input": "synthetic-day generator", "finding": f"unbiased over {D['n_synthetic']} days",
-         "action": "raise VALID_SEEDS to ≥ 200"},
+         "action": "validation now on 1,000 days (VALID_SEEDS)"},
         {"input": "baskets", "finding": "size and SKU mix vary by month; orders independent",
          "action": "keep ±3-day window bootstrap"},
         {"input": "pickers", "finding": f"between-operator ICC {F['icc_log_lines']:.2f}",

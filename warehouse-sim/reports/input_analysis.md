@@ -199,28 +199,28 @@ No stock or receipt data exist. The rule (`input_models.add_receipts`): a truck 
 
 A cover in days of the *mean* demand leaves the many lumpy slow movers unprotected (an SKU that sells 0.3 units/day on average sells 6 units on the day it sells). The chosen rule adds the 90th percentile of the SKU's units on its selling days (it binds for 100% of SKUs): stock-outs stay possible (a few % of orders wait for a put-away) but are not the dominant effect. Opening stock total 22,776 units (median 3 per SKU).
 
-## 7. Validation: 30 synthetic days vs the real working days
+## 7. Validation: 1000 synthetic days vs the real working days
 
-Real: all 167 regular days replayed. Model: seeds 1001..1030 (not the day files). Two-sample KS tests per day-level metric (30 vs 167 days).
+Real: all 167 regular days replayed. Model: seeds 1001..2000 (not the day files). Two-sample KS tests per day-level metric (1000 vs 167 days).
 
 | metric | real mean (sd) | model mean (sd) | KS p model vs real | 07h batch + NHPP mean | KS p NHPP vs real |
 |---|---|---|---|---|---|
-| orders / day | 193.2 (130.4) | 156.4 (113.3) | 0.050 | 156.4 | 0.050 |
-| lines / day | 686.2 (489.4) | 558.1 (377.3) | 0.353 | 571.7 | 0.210 |
-| units / day | 1287.2 (981.1) | 976.4 (687.4) | 0.299 | 1040.6 | 0.140 |
-| mean lines / order (per day) | 3.58 (1.29) | 3.85 (1.23) | 0.561 | 4.02 | 0.233 |
-| distinct SKUs / lines (per day) | 0.550 (0.151) | 0.590 (0.153) | 0.256 | 0.604 | 0.034 |
-| busiest 10 min: share of the day's orders | 0.761 (0.211) | 0.773 (0.193) | 0.641 | 0.278 | 8.6e-13 |
+| orders / day | 193.2 (130.4) | 198.3 (125.9) | 0.421 | 198.3 | 0.421 |
+| lines / day | 686.2 (489.4) | 694.8 (451.9) | 0.758 | 693.1 | 0.777 |
+| units / day | 1287.2 (981.1) | 1335.1 (1028.1) | 0.758 | 1356.8 | 0.776 |
+| mean lines / order (per day) | 3.58 (1.29) | 3.64 (1.14) | 0.206 | 3.63 | 0.159 |
+| distinct SKUs / lines (per day) | 0.550 (0.151) | 0.541 (0.145) | 0.732 | 0.541 | 0.828 |
+| busiest 10 min: share of the day's orders | 0.761 (0.211) | 0.758 (0.211) | 0.978 | 0.338 | 1.9e-51 |
 
-- **Hour-of-day profile:** total variation distance to the real profile 0.226 (model) and 0.056 (07h batch + NHPP).
-- **Lines per order (pooled orders):** real mean 3.55, model 3.57; two-sample KS p = 0.965 (n = 32,265 vs 4,692).
-- **SKU popularity:** Spearman rank correlation between real and model order lines per SKU rho = 0.85 over 2,515 SKUs; 78 of the real top-100 SKUs are in the model's top 100 (30 days only, so the slow tail is noisy).
+- **Hour-of-day profile:** total variation distance to the real profile 0.041 (model) and 0.063 (07h batch + NHPP).
+- **Lines per order (pooled orders):** real mean 3.55, model 3.50; two-sample KS p = 0.586 (n = 32,265 vs 198,328).
+- **SKU popularity:** Spearman rank correlation between real and model order lines per SKU rho = 0.99 over 2,515 SKUs; 95 of the real top-100 SKUs are in the model's top 100 (1000 synthetic days).
 
 ![hours](figures/hour_profile.png)
 
 ![validation](figures/validation.png)
 
-**Verdict.** The day-level volume, lines, units and lines/order of the synthetic days are statistically indistinguishable from the real days at 5% (see the KS column). The batch-release model reproduces the burstiness (share of the day arriving in the busiest 10 min) and the hour profile; the smoother 07h-batch + NHPP alternative gets the hour profile roughly right but underestimates the burstiness of the later releases, which matters for queueing at the pickers, so it is not used. SKU popularity is reproduced in rank (the SKU mix is real data). Limitations: 30 days are a small sample for tail metrics; the release pattern and the basket window are empirical, so the model cannot produce release patterns or SKU mixes never seen in 2023; inbound, opening stock and all service times are assumptions and must be varied in the sensitivity analysis.
+**Verdict.** The day-level volume, lines, units and lines/order of the synthetic days are statistically indistinguishable from the real days at 5% (see the KS column). The batch-release model reproduces the burstiness (share of the day arriving in the busiest 10 min) and the hour profile; the smoother 07h-batch + NHPP alternative gets the hour profile roughly right but underestimates the burstiness of the later releases, which matters for queueing at the pickers, so it is not used. SKU popularity is reproduced in rank (the SKU mix is real data). Limitations: the release pattern and the basket window are empirical, so the model cannot produce release patterns or SKU mixes never seen in 2023; inbound, opening stock and all service times are assumptions and must be varied in the sensitivity analysis.
 
 ## 8. Files written
 

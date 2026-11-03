@@ -4,7 +4,7 @@
     python3 -m whsim.input_report     # then: this report (reads input_models.json, skus.csv, the raw data)
 
 Sections: data dictionary, real vs assumed inputs, cleaning log, summary statistics, fitted input models
-with goodness-of-fit tables, opening-stock rule sensitivity, and the validation of 30 synthetic days
+with goodness-of-fit tables, opening-stock rule sensitivity, and the validation of 1,000 synthetic days
 against the real working days.
 """
 from __future__ import annotations
@@ -25,7 +25,10 @@ from . import real_data as rd  # noqa: E402
 
 REPORTS = im.ROOT / "reports"
 FIG = REPORTS / "figures"
-VALID_SEEDS = range(1001, 1031)          # 30 synthetic validation days (not the day files 1..10)
+VALID_SEEDS = range(1001, 2001)          # 1,000 synthetic validation days (not the day files 1..10). Fewer is noise:
+                                         # a 30-day mean of orders/day varies 163-237, and 200-seed blocks give KS
+                                         # p from 0.05 to 0.88 (reports/input_audit.md, section D)
+N_VALID = len(VALID_SEEDS)
 
 # chart palette (validated categorical order: blue, orange, aqua, violet) and neutral inks
 C_DATA, C_FIT1, C_FIT2, C_FIT3 = "#2a78d6", "#eb6834", "#1baf7a", "#6250d6"
@@ -189,7 +192,7 @@ def fig_hours(real_share, syn_share, nhpp_share):
     fig, ax = plt.subplots(figsize=(7.5, 3.4))
     w = 0.27
     ax.bar(hours - w, [real_share.get(h, 0) for h in hours], w, color=C_DATA, label="real (167 days)")
-    ax.bar(hours, [syn_share.get(h, 0) for h in hours], w, color=C_FIT1, label="model: release patterns (30 days)")
+    ax.bar(hours, [syn_share.get(h, 0) for h in hours], w, color=C_FIT1, label=f"model: release patterns ({N_VALID} days)")
     ax.bar(hours + w, [nhpp_share.get(h, 0) for h in hours], w, color=C_FIT2, label="alternative: 07h batch + NHPP")
     ax.set(title="Hour-of-day profile of order creation", xlabel="hour of day (model t = 0 at 06:00)",
            ylabel="share of the day's orders", xticks=hours)
@@ -276,8 +279,8 @@ def fig_arrivals(reg_orders, rng):
 
 def fig_validation(real, syn, nhpp, sku_real, sku_syn):
     fig, ax = plt.subplots(1, 3, figsize=(11, 3.4))
-    for v, c, lab in [(real, C_DATA, "real (167 days)"), (syn, C_FIT1, "model (30 days)"),
-                      (nhpp, C_FIT2, "07h batch + NHPP (30 days)")]:
+    for v, c, lab in [(real, C_DATA, "real (167 days)"), (syn, C_FIT1, f"model ({N_VALID} days)"),
+                      (nhpp, C_FIT2, f"07h batch + NHPP ({N_VALID} days)")]:
         x = np.sort([d["n_orders"] for d in v])
         ax[0].step(x, np.arange(1, len(x) + 1) / len(x), where="post", color=c, label=lab)
     ax[0].set(title="Daily volume ECDF", xlabel="orders / day", ylabel="cumulative probability")
@@ -592,7 +595,7 @@ def build():
         f"total {skus.init_qty.sum():,} units (median {skus.init_qty.median():.0f} per SKU).\n")
 
     # --- validation
-    add("## 7. Validation: 30 synthetic days vs the real working days\n")
+    add(f"## 7. Validation: {N_VALID} synthetic days vs the real working days\n")
     real = [day_stats(im.make_real_day(d, bk, init)) for d in sorted(reg_dates)]
     syn = [day_stats(im.make_synthetic_day(s, init=init)) for s in VALID_SEEDS]
     alt = [day_stats(im.make_synthetic_day(s, init=init, arrival="nhpp")) for s in VALID_SEEDS]
@@ -636,7 +639,7 @@ def build():
         row("busiest 10 min: share of the day's orders", lambda d: d["max10_share"], "{:.3f}"),
     ])
     add(f"Real: all {len(real)} regular days replayed. Model: seeds {VALID_SEEDS.start}..{VALID_SEEDS.stop - 1} "
-        "(not the day files). Two-sample KS tests per day-level metric (30 vs 167 days).\n")
+        f"(not the day files). Two-sample KS tests per day-level metric ({N_VALID} vs {len(real)} days).\n")
     add(md_table(vt) + "\n")
     lr = np.concatenate([d["lpo"] for d in real])
     ls = np.concatenate([d["lpo"] for d in syn])
@@ -646,7 +649,7 @@ def build():
         f"p = {pfmt(stats.ks_2samp(lr, ls).pvalue)} (n = {len(lr):,} vs {len(ls):,}).\n"
         f"- **SKU popularity:** Spearman rank correlation between real and model order lines per SKU "
         f"rho = {rho:.2f} over {len(keys):,} SKUs; {len(top_r & top_s)} of the real top-100 SKUs are in the "
-        f"model's top 100 (30 days only, so the slow tail is noisy).\n")
+        f"model's top 100 ({N_VALID} synthetic days).\n")
     add(f"![hours]({hp})\n")
     add(f"![validation]({fig_validation(real, syn, alt, sku_real, sku_syn)})\n")
     verdict = []
@@ -660,7 +663,7 @@ def build():
         "arriving in the busiest 10 min) and the hour profile; the smoother 07h-batch + NHPP alternative gets "
         "the hour profile roughly right but underestimates the burstiness of the later releases, which matters "
         "for queueing at the pickers, so it is not used. SKU popularity is reproduced in rank (the SKU mix is "
-        "real data). Limitations: 30 days are a small sample for tail metrics; the release pattern and the "
+        "real data). Limitations: the release pattern and the "
         "basket window are empirical, so the model cannot produce release patterns or SKU mixes never "
         "seen in 2023; inbound, opening stock and all service times are assumptions and must be varied in "
         "the sensitivity analysis.\n")

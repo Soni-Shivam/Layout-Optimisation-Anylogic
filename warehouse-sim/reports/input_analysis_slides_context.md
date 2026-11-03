@@ -123,15 +123,19 @@ Tests on 32,265 orders (minute stamps jittered within the minute):
 - Figure: `figures/audit_volume_acf.png`
 
 ### 6.2 Is the day generator unbiased? Yes
-| Per day | Real mean (167 days) | Generator mean (300 days) | KS p |
-|---|---|---|---|
-| Orders | 193.2 | 198.3 | 0.32 |
-| Lines | 686.2 | 685.2 | 0.81 |
-| Units | 1,287 | 1,352 | 0.86 |
+Validation on **1,000 synthetic days** vs the 167 real days (`input_analysis.md` §7):
 
-- An earlier check with only 30 synthetic days gave 156 orders/day (KS p = 0.050).
-- The 300-day run shows that was sample noise: the mean of 30 generator days naturally falls anywhere between 163 and 237 (90% range).
-- Figure: `figures/audit_generator.png`
+| Per day | Real mean | Generator mean | KS p |
+|---|---|---|---|
+| Orders | 193.2 | 198.3 | 0.42 |
+| Lines | 686.2 | 694.8 | 0.76 |
+| Units | 1,287 | 1,335 | 0.76 |
+| Lines per order | 3.58 | 3.64 | 0.21 |
+| Busiest-10-min share of the day | 0.761 | 0.758 | 0.98 |
+
+- An earlier check on only 30 synthetic days gave 156 orders/day (KS p = 0.050) and looked like a bias.
+- The audit showed it was sample noise: the mean of 30 generator days falls anywhere between 163 and 237, and even 200-day blocks give KS p from 0.05 to 0.88. Validation was therefore moved to 1,000 days.
+- Figures: `figures/validation.png`, `figures/audit_generator.png`
 
 ### 6.3 Is the ±3-day order bootstrap justified? Yes
 - **Product mix drifts:** the similarity of the SKU mix between two weeks falls from 0.55 (1 week apart) to 0.42 (30 weeks apart).
@@ -140,8 +144,8 @@ Tests on 32,265 orders (minute stamps jittered within the minute):
 - Figure: `figures/audit_sku_drift.png`
 
 ### 6.4 Other validation results
-- **Hour-of-day profile and burstiness:** the busiest 10 minutes hold 76% of a day's orders in reality and 77% in the model.
-- **SKU popularity:** Spearman ρ = 0.85 between real and simulated popularity; 78 of the real top-100 SKUs are in the model's top 100.
+- **Hour-of-day profile and burstiness:** the busiest 10 minutes hold 76% of a day's orders in reality and in the model; total variation distance of the hour profile 0.04.
+- **SKU popularity:** Spearman ρ = 0.99 between real and simulated popularity; 95 of the real top-100 SKUs are in the model's top 100.
 - **Operators:** only 7% of the variation in lines per operator-day is between operators (intraclass correlation 0.07). A per-picker speed factor is an optional sensitivity case.
 - Figure: `figures/validation.png`
 
@@ -162,7 +166,7 @@ Tests on 32,265 orders (minute stamps jittered within the minute):
 3. **Orders per day:** histogram + Q-Q plot; Poisson rejected; NB chosen (KS 0.28, χ² 0.35, AD 0.26).
 4. **Arrivals are batches:** the three rejected Poisson tests; batch-release model; 49% of days start with a 07:xx batch carrying 66% of orders.
 5. **Order contents:** 59.5% single-line orders; parametric fits rejected → bootstrap real orders; 24-unit carts.
-6. **Validation:** generator vs real (198 vs 193 orders/day, all KS p > 0.3); burstiness and SKU popularity reproduced.
+6. **Validation:** 1,000 generator days vs 167 real days (198 vs 193 orders/day, all KS p ≥ 0.2); burstiness and SKU popularity (ρ = 0.99) reproduced.
 7. **Assumption checks:** days independent (Ljung–Box p = 0.26) but monthly level 0.71×–1.33×; SKU mix drift justifies the ±3-day window.
 8. **Limitations and next steps:** §7, plus sensitivity on pick time (8–20 s).
 
