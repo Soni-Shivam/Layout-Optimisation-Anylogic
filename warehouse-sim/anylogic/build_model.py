@@ -461,13 +461,6 @@ for (int r = 0; r < L.rows; r++) {
 		presentation.insert(k++, s);
 	}
 }
-for (LayoutData.Facility f : L.facilities) {
-	if (f.type.equals("R") || f.type.equals("G")) continue;
-	boolean dark = f.type.equals("DI") || f.type.equals("DO") || f.type.equals("H");
-	ShapeText t = label(sx(f.x), sy(f.y) - 5, f.id, dark ? C_PAPER3 : C_INK, 8, true);
-	t.setAlignment(ALIGNMENT_CENTER);
-	presentation.insert(k++, t);
-}
 // key, right of the map: what the cell colours and the worker dots mean
 String[] cell = {"A", "S", "#", "R", "PK", "G", "DI", "H"};
 String[] cellName = {"aisle", "shelf", "wall", "receiving", "packing station", "staging", "dock", "picker depot"};
@@ -482,17 +475,20 @@ for (int i = 0; i < cell.length; i++) {
 y += 16;
 presentation.insert(k++, label(x, y, "Workers", C_INK, 12, true));
 y += 24;
-String[] who = {"picker", "packer", "receiver", "putaway", "idle"};
+String[] who = {"picker", "putaway", "packer", "receiver", "idle"};
+int[] whoRole = {0, 3, 1, 2, -1};
+String[] how = {"walks a cart tour", "walks to the slot", "works at a packing station", "works at receiving", "waits at its station"};
 for (int i = 0; i < who.length; i++) {
 	ShapeOval o = new ShapeOval();
 	o.setPos(x + 6, y + 7);
 	o.setRadius(5.5);
-	o.setFillColor(i < 4 ? roleColor(i) : C_IDLE);
+	o.setFillColor(whoRole[i] >= 0 ? roleColor(whoRole[i]) : C_IDLE);
 	o.setLineColor(C_PAPER3);
 	o.setLineWidth(1.5);
 	presentation.insert(k++, o);
 	presentation.insert(k++, label(x + 20, y, who[i], C_INK2, 11, false));
-	y += 20;
+	presentation.insert(k++, label(x + 20, y + 14, how[i], C_MUTED, 9, false));
+	y += 32;
 }
 y += 16;
 presentation.insert(k++, label(x, y, L.cols + " x " + L.rows + " cells\\n" + String.format("%.2f x %.2f m each", L.cellW, L.cellH)
@@ -576,10 +572,24 @@ return new double[]{f.x, f.y};
 
     fn("workerXY", "double[]", [("int", "i")], """
 Worker u = workers.get(i);
-double[] p = u.motion != null ? u.motion.at(time()) : homeXY(u);
-double off = ((u.k % 3) - 1) * 0.35 * wh.layout.cellW;     // spread workers that share a spot
-return new double[]{sx(p[0] + off), sy(p[1] + off)};
+if (u.motion != null) {                    // walking: exactly on its route (an offset would put it in a rack or a wall)
+	double[] p = u.motion.at(time());
+	return new double[]{sx(p[0]), sy(p[1])};
+}
+// at its station: workers that share one stand side by side, 4 to a row, in screen pixels
+double[] p = homeXY(u);
+int n = u.k / homeShare(u.role);
+return new double[]{sx(p[0]) + (n % 4 - 1.5) * 8, sy(p[1]) + (n / 4) * 8};
 """)
+
+    fn("homeShare", "int", [("int", "role")], """
+switch (role) {
+	case 1: return Math.max(1, wh.facilities("PK").size());
+	case 2: return Math.max(1, wh.facilities("R").size());
+	case 3: return Math.max(1, wh.facilities("DI").size());
+	default: return 1;
+}
+""", "How many stations the workers of a role are shared over (homeXY puts unit k at station k % n).")
 
     fn("workerVisible", "boolean", [("int", "i")], "return wh != null && i < workers.size();")
 

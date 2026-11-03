@@ -127,10 +127,13 @@ def main():
     y += 16
     text(x, y, "Workers", 12, True, hexrgb(B.INK))
     y += 24
-    for n in ["picker", "packer", "receiver", "putaway", "idle"]:
+    for n, how in [("picker", "walks a cart tour"), ("putaway", "walks to the slot"),
+                   ("packer", "works at a packing station"), ("receiver", "works at receiving"),
+                   ("idle", "waits at its station")]:
         d.ellipse([x + 0.5, y + 1.5, x + 11.5, y + 12.5], fill=hexrgb(B.ACCENT))
         text(x + 20, y, n, 11, False, hexrgb(B.INK2))
-        y += 20
+        text(x + 20, y + 14, how, 9, False, hexrgb(B.MUTED))
+        y += 32
     y += 16
     text(x, y, f"{L['cols']} x {L['rows']} cells\n{cw:.2f} x {ch:.2f} m each\n{len(L['slots'])} slots", 10, False,
          hexrgb(B.MUTED))
