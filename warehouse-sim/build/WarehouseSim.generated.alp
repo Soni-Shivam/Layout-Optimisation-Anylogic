@@ -3483,7 +3483,7 @@ return t;]]></Body>
 <PublicFlag>false</PublicFlag>
 <PresentationFlag>true</PresentationFlag>
 <ShowLabel>true</ShowLabel>
-<Body><![CDATA[// one mono face for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
+<Body><![CDATA[// one typeface for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
 java.io.File[] files = new java.io.File("data/fonts").listFiles();
 if (files != null) {
 	for (java.io.File f : files) {
@@ -3496,7 +3496,7 @@ if (files != null) {
 		}
 	}
 }
-String[] want = {"Chivo Mono", "JetBrains Mono", "IBM Plex Mono", "DM Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Monospaced"};
+String[] want = {"Lato", "Segoe UI", "Helvetica Neue", "Arial", "Liberation Sans"};
 Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
 for (String f : want) {
 	if (have.contains(f)) {
@@ -9113,7 +9113,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[Warehouse floor simulation]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>18</Size>
 <Style>1</Style>
 </Font>
@@ -9135,7 +9135,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[dayText()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9157,7 +9157,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[clockText()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>30</Size>
 <Style>1</Style>
 </Font>
@@ -9179,7 +9179,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[fastText()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9224,7 +9224,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[layoutTitle()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>20</Size>
 <Style>1</Style>
 </Font>
@@ -9246,7 +9246,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[layoutDetail()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9289,7 +9289,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Walk per order]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9311,7 +9311,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figValue(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>28</Size>
 <Style>1</Style>
 </Font>
@@ -9333,7 +9333,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figNote(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9376,7 +9376,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Arrival to packed]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9398,7 +9398,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figValue(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>28</Size>
 <Style>1</Style>
 </Font>
@@ -9420,7 +9420,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figNote(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9463,7 +9463,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Packed by cut-off]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9485,7 +9485,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figValue(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>28</Size>
 <Style>1</Style>
 </Font>
@@ -9507,7 +9507,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[figNote(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9550,7 +9550,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[Orders]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -9572,7 +9572,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[wh == null ? "" : nArrived + " of " + wh.scenario.orders.size() + " arrived"]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9615,7 +9615,7 @@ unit.busyNow = false;]]></Code>
 <Color>-6643802</Color>
 <Text><![CDATA[Stage]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9636,7 +9636,7 @@ unit.busyNow = false;]]></Code>
 <Color>-6643802</Color>
 <Text><![CDATA[Now]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9657,7 +9657,7 @@ unit.busyNow = false;]]></Code>
 <Color>-6643802</Color>
 <Text><![CDATA[Today]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -9702,7 +9702,7 @@ unit.busyNow = false;]]></Code>
 <ColorCode><![CDATA[boardNow(0) > 0 ? new Color(0x0A0D13) : new Color(0xFBFEFF)]]></ColorCode>
 <Text><![CDATA[Waiting for stock]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -9725,7 +9725,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardNow(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>22</Size>
 <Style>1</Style>
 </Font>
@@ -9748,7 +9748,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardSoFar(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9791,7 +9791,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[Waiting for a cart]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -9813,7 +9813,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardNow(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>22</Size>
 <Style>1</Style>
 </Font>
@@ -9835,7 +9835,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardSoFar(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9878,7 +9878,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[On a cart]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -9900,7 +9900,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardNow(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>22</Size>
 <Style>1</Style>
 </Font>
@@ -9922,7 +9922,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardSoFar(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -9965,7 +9965,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[Packing]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -9987,7 +9987,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardNow(3)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>22</Size>
 <Style>1</Style>
 </Font>
@@ -10009,7 +10009,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardSoFar(3)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -10052,7 +10052,7 @@ unit.busyNow = false;]]></Code>
 <Color>-262401</Color>
 <Text><![CDATA[In staging]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -10074,7 +10074,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardNow(4)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>22</Size>
 <Style>1</Style>
 </Font>
@@ -10096,7 +10096,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[boardSoFar(4)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -10117,7 +10117,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Crew]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -10160,7 +10160,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Pickers]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -10182,7 +10182,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[String.format("%.0f%% of the day", 100 * utilSoFar(0))]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10204,7 +10204,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[crewText(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>1</Style>
 </Font>
@@ -10270,7 +10270,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Packers]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -10292,7 +10292,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[String.format("%.0f%% of the day", 100 * utilSoFar(1))]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10314,7 +10314,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[crewText(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>1</Style>
 </Font>
@@ -10380,7 +10380,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Receivers]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -10402,7 +10402,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[String.format("%.0f%% of the day", 100 * utilSoFar(2))]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10424,7 +10424,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[crewText(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>1</Style>
 </Font>
@@ -10490,7 +10490,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Putaway]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -10512,7 +10512,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[String.format("%.0f%% of the day", 100 * utilSoFar(3))]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10534,7 +10534,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[crewText(3)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>1</Style>
 </Font>
@@ -10601,7 +10601,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[inboundText()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -10622,7 +10622,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Orders through the day]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -10643,7 +10643,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Cumulative, since 06:00.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10776,7 +10776,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Walk per picked order]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -10797,7 +10797,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Running mean, metres. Lower is better.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -10910,7 +10910,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[Arrival to packed]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -10931,7 +10931,7 @@ unit.busyNow = false;]]></Code>
 <Color>-11117724</Color>
 <Text><![CDATA[Running mean, minutes. Lower is better.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>10</Size>
 <Style>0</Style>
 </Font>
@@ -11097,7 +11097,7 @@ unit.busyNow = false;]]></Code>
 <Color>-16118509</Color>
 <Text><![CDATA[End of day]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>24</Size>
 <Style>1</Style>
 </Font>
@@ -11120,7 +11120,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[layoutTitle()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -11143,7 +11143,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[dayText()]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>12</Size>
 <Style>0</Style>
 </Font>
@@ -11189,7 +11189,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11212,7 +11212,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(0)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11258,7 +11258,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11281,7 +11281,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(1)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11327,7 +11327,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11350,7 +11350,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(2)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11396,7 +11396,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(3)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11419,7 +11419,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(3)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11465,7 +11465,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(4)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11488,7 +11488,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(4)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11534,7 +11534,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(5)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11557,7 +11557,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(5)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11603,7 +11603,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(6)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11626,7 +11626,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(6)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11672,7 +11672,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(7)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11695,7 +11695,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(7)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11741,7 +11741,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(8)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11764,7 +11764,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(8)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11810,7 +11810,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endLabel(9)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>13</Size>
 <Style>0</Style>
 </Font>
@@ -11833,7 +11833,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[]]></Text>
 <TextCode><![CDATA[endText(9)]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>1</Style>
 </Font>
@@ -11856,7 +11856,7 @@ unit.busyNow = false;]]></Code>
 <Text><![CDATA[Added to results/runs.csv. To compare layouts, set Main.layoutFile to another
 layout and run the same day again.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -11877,7 +11877,7 @@ layout and run the same day again.]]></Text>
 <Color>-16118509</Color>
 <Text><![CDATA[Process flowchart]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>1</Style>
 </Font>
@@ -11898,7 +11898,7 @@ layout and run the same day again.]]></Text>
 <Color>-11117724</Color>
 <Text><![CDATA[The same for every layout. Outbound: arrive, stock check (hold if short), wait for a cart (wave release), cart tour by a picker, pack, staging until cut-off, ship. Inbound: arrive, receive, putaway trip, stock up (releases held orders).]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>11</Size>
 <Style>0</Style>
 </Font>
@@ -12991,7 +12991,7 @@ layout and run the same day again.]]></Text>
 <Color>-12490271</Color>
 <Text><![CDATA[WarehouseSim: one day on one layout. Inputs are the files named in Main's parameters (layoutFile, scenarioFile, configFile, skuFile, seed).]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>0</Style>
 </Font>
@@ -13064,7 +13064,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 <Color>-12490271</Color>
 <Text><![CDATA[Every design in data/layouts/index.txt x synthetic days 1-10 (layoutIndex x seed, common random numbers). Results: results/runs.csv.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>0</Style>
 </Font>
@@ -13086,7 +13086,7 @@ traceln("run " + runs + " of 60 done");]]></AfterSimulationRunCode>
 <Text><![CDATA[?]]></Text>
 <TextCode><![CDATA["runs done: " + runs + " of 60"]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>1</Style>
 </Font>
@@ -13199,7 +13199,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 <Color>-12490271</Color>
 <Text><![CDATA[The as-is layout on the 10 replayed historical days (data/scenarios/real_index.txt). Results: results/runs.csv.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>0</Style>
 </Font>
@@ -13221,7 +13221,7 @@ traceln("run " + runs + " of 10 done");]]></AfterSimulationRunCode>
 <Text><![CDATA[?]]></Text>
 <TextCode><![CDATA["runs done: " + runs + " of 10"]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>1</Style>
 </Font>
@@ -13318,7 +13318,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 <Color>-12490271</Color>
 <Text><![CDATA[Pickers 2..8 x synthetic days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>0</Style>
 </Font>
@@ -13340,7 +13340,7 @@ traceln("run " + runs + " of 70 done");]]></AfterSimulationRunCode>
 <Text><![CDATA[?]]></Text>
 <TextCode><![CDATA["runs done: " + runs + " of 70"]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>1</Style>
 </Font>
@@ -13453,7 +13453,7 @@ traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
 <Color>-12490271</Color>
 <Text><![CDATA[Cart size 0 (single-order picking), 12, 24, 36 units x days 1-10 on Main.layoutFile. Results: results/runs.csv.]]></Text>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>14</Size>
 <Style>0</Style>
 </Font>
@@ -13475,7 +13475,7 @@ traceln("run " + runs + " of 40 done");]]></AfterSimulationRunCode>
 <Text><![CDATA[?]]></Text>
 <TextCode><![CDATA["runs done: " + runs + " of 40"]]></TextCode>
 <Font>
-<Name>Chivo Mono</Name>
+<Name>Lato</Name>
 <Size>16</Size>
 <Style>1</Style>
 </Font>

@@ -3,7 +3,7 @@ stand-in for what Main.drawLayout() draws at start-up, with sample values in the
 pair of texts whose boxes overlap (and texts that run out of the board).
 
 Usage: python3 tools/preview_screen.py [layout.json] [out.png]      (after anylogic/build_model.py)
-Needs Pillow and a mono font (fc-match). Exit code 1 if anything overlaps.
+Needs Pillow and one of the fonts in build_model.FONTS (fc-match). Exit code 1 if anything overlaps.
 """
 import json
 import pathlib
@@ -52,12 +52,16 @@ def sample(code):
     return "?" + code
 
 
-def mono():
-    path = {}
-    for st in ("Regular", "Bold"):
-        out = subprocess.run(["fc-match", "-f", "%{file}", f"monospace:style={st}"], capture_output=True, text=True)
-        path[st] = out.stdout
-    return path
+def ui_fonts():
+    """Font files of the first of build_model.FONTS that fontconfig has (what Main.pickFont() would choose)."""
+    for fam in B.FONTS:
+        path = {}
+        for st in ("Regular", "Bold"):
+            out = subprocess.run(["fc-match", "-f", "%{family}|%{file}", f"{fam}:style={st}"], capture_output=True, text=True)
+            got, _, path[st] = out.stdout.partition("|")
+        if fam in got.split(","):
+            return path
+    raise SystemExit("none of " + ", ".join(B.FONTS) + " is installed")
 
 
 def rgb(v):
@@ -75,7 +79,7 @@ def main():
                           ROOT / "model/WarehouseSim/data/layouts/D40.3_63.1-P3-Xnone-asis.json")
     out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / "build/screen_preview.png")
     show_end = "--end" in sys.argv
-    fonts, cache = mono(), {}
+    fonts, cache = ui_fonts(), {}
 
     def font(sz, bold):
         if (sz, bold) not in cache:

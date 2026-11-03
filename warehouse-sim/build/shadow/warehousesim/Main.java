@@ -423,7 +423,7 @@ t.setFont(new Font(uiFont, bold ? Font.BOLD : Font.PLAIN, size));
 return t;
   }
   void pickFont() {
-// one mono face for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
+// one typeface for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
 java.io.File[] files = new java.io.File("data/fonts").listFiles();
 if (files != null) {
 	for (java.io.File f : files) {
@@ -436,7 +436,7 @@ if (files != null) {
 		}
 	}
 }
-String[] want = {"Chivo Mono", "JetBrains Mono", "IBM Plex Mono", "DM Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Monospaced"};
+String[] want = {"Lato", "Segoe UI", "Helvetica Neue", "Arial", "Liberation Sans"};
 Set<String> have = new HashSet<String>(Arrays.asList(java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
 for (String f : want) {
 	if (have.contains(f)) {

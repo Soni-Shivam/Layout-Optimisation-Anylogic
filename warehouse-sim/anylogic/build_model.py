@@ -34,10 +34,9 @@ MAX_DOTS = 80                                # worker dots drawn
 START_MS = 1759708800000 + 30 * 60 * 1000
 
 # ---- screen design: an operations board (Hallmark "Wayfind" material): cool grey paper, blue-black ink,
-# one mono face, square 2px ink rules, cobalt for what is live, amber for figures on ink. No rounded cards, no shadows.
-UI_FONT = "Chivo Mono"   # nominal; Main.pickFont() loads data/fonts/*.ttf and takes the first installed of FONTS
-FONTS = ["Chivo Mono", "JetBrains Mono", "IBM Plex Mono", "DM Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono",
-         "Monospaced"]
+# one plain sans face, square 2px ink rules, cobalt for what is live, amber for figures on ink. No rounded cards, no shadows.
+UI_FONT = "Lato"         # nominal; Main.pickFont() loads data/fonts/*.ttf and takes the first installed of FONTS
+FONTS = ["Lato", "Segoe UI", "Helvetica Neue", "Arial", "Liberation Sans"]
 PAPER, PAPER2, PAPER3 = "#EDF0F4", "#DDE2E7", "#FBFEFF"
 INK, INK2, MUTED, RULE, INKRULE, INKMUTED = "#0A0D13", "#282B32", "#565B64", "#B9BEC5", "#34383F", "#9A9FA6"
 ACCENT, AMBER = "#2055E1", "#F4B522"
@@ -524,7 +523,7 @@ return t;
 """, "A text in the board typeface.")
 
     fn("pickFont", None, [], """
-// one mono face for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
+// one typeface for the whole screen: fonts shipped in data/fonts are registered first, then the first installed one wins
 java.io.File[] files = new java.io.File("data/fonts").listFiles();
 if (files != null) {
 	for (java.io.File f : files) {
