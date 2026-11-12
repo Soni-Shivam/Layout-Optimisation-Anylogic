@@ -1,5 +1,7 @@
 # WarehouseSim: a real footwear warehouse, optimised in coordinates, simulated in AnyLogic
 
+> Technical guide to the code. For the project overview, results, slides and original proposal, see the [main README](../README.md).
+
 IE305 Simulation Lab, IEOR IIT Bombay. This project models the order-fulfilment warehouse of a footwear manufacturer:
 - **Data:** the real WMS extract, Mendeley Data pf2w725pw3, 2023, 122k order lines and 215k picks.
 - **Processes:** wave (cart) picking, packing, carrier cut-offs, inbound putaway and stock.

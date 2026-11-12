@@ -1,4 +1,4 @@
-"""Input-data audit of the footwear-warehouse inputs, following PROJECT_SPEC.md section 3.1-3.2.
+"""Input-data audit of the footwear-warehouse inputs, following docs/PROJECT_SPEC.md (repository root) section 3.1-3.2.
 
     python3 -m whsim.input_audit        # -> reports/input_audit.md, reports/input_audit.json, figures/audit_*.png
 
