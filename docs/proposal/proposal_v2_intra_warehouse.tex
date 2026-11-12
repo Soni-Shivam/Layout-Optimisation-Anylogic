@@ -1,0 +1,249 @@
+% Compile with selfArx.cls in the same folder.
+\documentclass[10pt]{selfArx}
+
+\usepackage[english]{babel}
+\usepackage{booktabs,tabularx,array}
+\usepackage{colortbl}
+\usepackage{enumitem}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+\renewcommand{\rmdefault}{ptm}
+\setstretch{0.98}
+\setlength{\columnsep}{0.52cm}
+\setlength{\floatsep}{4pt}
+\setlength{\textfloatsep}{5pt}
+\setlength{\intextsep}{4pt}
+\setlist[itemize]{leftmargin=12pt,itemsep=0pt,topsep=2pt}
+\setlist[enumerate]{leftmargin=14pt,itemsep=0pt,topsep=2pt}
+\definecolor{color1}{RGB}{0,0,0}
+\definecolor{color2}{RGB}{0,102,204}
+\definecolor{blockD}{RGB}{224,242,254}
+\definecolor{blockF}{RGB}{254,242,214}
+\definecolor{blockP}{RGB}{236,236,236}
+\hypersetup{hidelinks,colorlinks=true,urlcolor=color2,citecolor=color1,linkcolor=color1,
+  pdftitle={Generic Warehouse Simulation Framework},pdfauthor={IE305 Group}}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\JournalInfo{IE305 Simulation Lab, IEOR@IITB}
+\Archive{Simulation Project}
+\Keywords{}
+\PaperTitle{A Generic Simulation Framework for Intra-Warehouse Operations with Automatic Model Generation}
+\Authors{Shivam Soni (24B4525) Siddhesh Phadke (24B4502)}
+
+\raggedbottom
+\begin{document}
+
+\Abstract{Inside a warehouse, managers decide where to place storage and pickup areas, how to route material flow, how many forklifts and workers to run and which picking and loading strategies to follow, usually by rules of thumb. Each new layout normally needs a new simulation model, which is slow and requires an expert. We want to build one generic, parameter driven discrete event model of a warehouse, covering receiving, putaway, storage, order picking, consolidation, staging and loading, that a non-expert can configure and run. On top of this framework we plan to develop an automatic model generation framework: the user draws a facility on a grid of standard building blocks and the complete simulation model is generated from it. The framework is used to size forklifts and workers, compare storage and pickup allotments and test operating strategies under synthetic stochastic demand.}
+\maketitle
+\thispagestyle{empty}
+
+% =====================================================
+\section{System Selection \& Problem Statement}
+
+\subsection*{The System}
+The internal operations of a warehouse. Inbound pallets arrive at the docks, are checked in a receiving buffer and put away to storage by forklifts. Customer orders release picking tasks; picked items are consolidated, held in pickup areas and loaded at outbound docks. Trucks appear only as the arrival and departure points at the dock. The model is built in three components:
+\begin{itemize}
+  \item \textbf{User Interface:} a non-expert sets layout, docks, forklifts, volume and policies, launches experiments and reads a KPI dashboard.
+  \item \textbf{Generic Modelling Framework:} reusable building blocks (Dock, Forklift/charging, Passage), generic process logic and generic agents for pallets, orders, forklifts and workers.
+  \item \textbf{Data \& Model Assembly:} stores configurations and input distributions, assembles the runnable model and exports results.
+\end{itemize}
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{idea_warehouse.png}
+    \caption{Simulation Model}
+    \label{fig:placeholder}
+\end{figure}
+\subsection*{Highlight: Automatic Model Generation}
+\noindent{\color{color2}\vrule width 2pt}\hspace{0pt}\colorbox{color2!10}{\parbox{\dimexpr\columnwidth-2\fboxsep-2pt\relax}{\small Building a new AnyLogic model for every layout is the main cost of simulation-based layout planning. We want to generate it automatically. The user fills a grid matrix where each cell is a building block (D = dock block, F = forklift block, P = passage, 0 = empty). A generator reads the matrix and creates the space markup, walls, docks, storage and pickup areas and the forklift path network at runtime. Any facility shape (I, L, T, U, H) then becomes a one-click experiment instead of a modelling task. This is built as an extension on top of the working framework.}}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[font=\sffamily\small,
+  cell/.style={draw=black!50, minimum size=0.62cm, inner sep=0pt},
+  arr/.style={-{Stealth[length=2.4mm]}, thick, color=color2}]
+% Matrix input (L-shape)
+\foreach \r/\row in {0/{D,D,D,0},1/{P,P,D,0},2/{F,P,P,D},3/{0,D,D,D}}{
+  \foreach \c [count=\i from 0] in \row {
+    \node[cell] at (\i*0.62, -\r*0.62) {\c};
+  }
+}
+\node[font=\sffamily\scriptsize, align=center] at (0.93,-2.75) {Input: block matrix};
+% Arrow
+\draw[arr] (2.8,-0.93) -- node[above, font=\sffamily\scriptsize]{generator} (4.3,-0.93);
+% Generated layout
+\foreach \x/\y/\t in {0/0/D,1/0/D,2/0/D,2/1/D,3/2/D,1/3/D,2/3/D,3/3/D}{
+  \filldraw[fill=blockD, draw=black!45] (4.6+\x*0.62, -\y*0.62-0.31) rectangle ++(0.62,0.62);
+  \fill[color2] (4.6+\x*0.62+0.06, -\y*0.62+0.22) rectangle ++(0.5,0.06);
+}
+\foreach \x/\y in {0/1,1/1,1/2,2/2}{
+  \filldraw[fill=blockP, draw=black!45] (4.6+\x*0.62, -\y*0.62-0.31) rectangle ++(0.62,0.62);
+}
+\filldraw[fill=blockF, draw=black!45] (4.6, -2*0.62-0.31) rectangle ++(0.62,0.62);
+\draw[orange!70!black, thick, dashed, -{Stealth[length=1.5mm]}] (4.91,-1.24) -- (6.15,-1.24);
+\draw[orange!70!black, thick, dashed, -{Stealth[length=1.5mm]}] (5.53,-1.24) -- (5.53,-0.62) -- (4.91,-0.62);
+% Legend
+\foreach \c/\l/\yy in {blockD/Dock block/0, blockP/Passage/-0.4, blockF/Forklift block/-0.8}{
+  \filldraw[fill=\c, draw=black!45] (7.35,\yy-0.12) rectangle ++(0.24,0.24);
+  \node[anchor=west, font=\sffamily\scriptsize] at (7.62,\yy) {\l};
+}
+\draw[orange!70!black, thick, dashed] (7.35,-1.2) -- ++(0.24,0);
+\node[anchor=west, font=\sffamily\scriptsize] at (7.62,-1.2) {Forklift path};
+\node[font=\sffamily\scriptsize, align=center] at (5.84,-2.75) {Output: model with docks,\\areas and forklift paths};
+\end{tikzpicture}}
+\caption{Automatic model generation: a block matrix is converted into a complete, runnable facility model.}
+\end{figure}
+
+\subsection*{The Problem}
+Inside the warehouse, poorly allotted storage and pickup areas, long or conflicting forklift paths and unbalanced forklift and worker capacity cause excess travel, congestion in aisles and buffers, and orders that miss their loading slot. We study:
+\begin{enumerate}
+  \item \textbf{Allotment \& material flow:} where should storage and pickup areas sit relative to the docks, and how should forklift paths be routed, to minimise travel distance and shipment cycle time?
+  \item \textbf{Resources:} what is the minimum number of forklifts and workers that meets the service level at peak volume, and which resource is the bottleneck?
+  \item \textbf{Strategies:} how much do storage assignment, picking and loading strategies improve performance at zero capital cost?
+  \item \textbf{Usability:} can one generic model, and ultimately one generated from a drawing, answer these without manual rebuilding?
+\end{enumerate}
+\subsection*{System Boundaries}
+{\footnotesize
+\renewcommand{\arraystretch}{1.05}
+\setlength{\tabcolsep}{3pt}
+\noindent\begin{tabularx}{\columnwidth}{LL}
+\rowcolor{color2!14} \textbf{Included} & \textbf{Excluded} \\
+Dock unloading and loading & Yard, gate and truck scheduling \\
+Receiving check and buffer & Road transport outside the facility \\
+Putaway and storage & Procurement and inventory policy \\
+Picking, consolidation, staging & Value-added services \\
+Forklift travel, congestion, charging & Shifts, breaks, labour rules \\
+Worker tasks and utilisation & Returns, damages, IT systems \\
+\end{tabularx}}
+
+
+
+% =====================================================
+\section{System Configuration}
+
+\subsection*{Entities \& Resources}
+{\small
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{3pt}
+\noindent\begin{tabularx}{\columnwidth}{>{\bfseries}P{2.4cm}L}
+\rowcolor{color2!14} Entity & Attributes \\
+Inbound pallet  & Arrival time, SKU class, storage location \\
+Customer order  & Lines per order, due loading slot \\
+Shipment        & Destination, pallets, loading dock \\
+Forklift task   & Type (putaway, pick, load), origin, destination \\
+\rowcolor{color2!14} Resource & Capacity / decision \\
+Forklifts         & Fleet size; performance \\
+Workers           & Receivers, pickers, loaders per shift \\
+Docks             & Count; inbound / outbound split \\
+Receiving buffer  & Pallet capacity \\
+Storage area      & Slots; placement; SKU zoning \\
+Pickup area       & Pallet capacity; placement \\
+Aisles / paths    & One-way or two-way; congestion \\
+Chargers          & Count \\
+\end{tabularx}}
+
+\subsection*{Process Flow Sketch}
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[font=\sffamily\small,
+  box/.style={draw=black!55, rounded corners=2pt, align=center, minimum height=0.85cm, text width=2.0cm, fill=blockP!50},
+  res/.style={draw=color2, rounded corners=2pt, align=center, minimum height=0.85cm, text width=2.0cm, fill=blockD},
+  dec/.style={draw=black!55, diamond, aspect=1.8, inner sep=0.5pt, text width=1.0cm, align=center, fill=white},
+  arr/.style={-{Stealth[length=2mm]}, semithick}]
+\node[box] (a1) at (0,0)     {Inbound pallets at dock};
+\node[res] (y)  at (2.6,0)   {Receiving buffer};
+\node[box] (d)  at (5.2,0)   {Check (worker)};
+\node[box] (u)  at (7.8,0)   {Putaway (forklift)};
+\node[box] (l)  at (0,-1.6)   {Load at outbound dock};
+\node[res] (st) at (2.6,-1.6) {Pickup area};
+\node[box] (pk) at (5.2,-1.6) {Pick + consolidate};
+\node[res] (s)  at (7.8,-1.6) {Storage area};
+\node[box] (a2) at (0,-3.1)   {Shipment departs};
+\node[box] (o)  at (5.2,-3.1) {Customer order};
+\node[res,fill=blockF,draw=orange!70!black] (f) at (7.8,-3.1) {Forklifts + workers};
+\node[res,fill=blockF,draw=orange!70!black] (c) at (7.8,-4.4) {Charging};
+\draw[arr] (a1)--(y); \draw[arr] (y)--(d); \draw[arr] (d)--(u);
+\draw[arr] (u)--(s);
+\draw[arr] (s)--(pk); \draw[arr] (pk)--(st); \draw[arr] (st)--(l);
+\draw[arr] (l)--(a2); \draw[arr] (o)--(pk);
+\draw[arr,dashed] (f)--node[right]{serve tasks}(s);
+\draw[arr,dashed] ([xshift=-3mm]f.south)--node[left]{low}([xshift=-3mm]c.north);
+\draw[arr,dashed] ([xshift=3mm]c.north)--node[right]{charged}([xshift=3mm]f.south);
+\end{tikzpicture}}
+\caption{Intra-warehouse routing logic. Blue: buffers and areas with finite capacity; orange: shared forklift and worker resources.}
+\end{figure}
+
+% =====================================================
+\section{Input Data Collection Plan}
+All inputs use synthetic data. Distributions are fitted in Python, checked with KS / Chi-square tests, and the model is run on both sampled data and fitted distributions.
+
+{\small
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\noindent\begin{tabularx}{\columnwidth}{LP{1.35cm}P{2.6cm}}
+\rowcolor{color2!14} \textbf{Stochastic variable} & \textbf{Sourcing} & \textbf{Sample / Dist.} \\
+Inbound pallet arrivals at dock & Synthetic & 500; Poisson \\
+Order inter-arrival            & Synthetic & 1000; Exponential \\
+Lines per order                 & Synthetic & 1000; Geometric \\
+SKU demand mix                  & Synthetic & ABC (skewed) \\
+Receiving check time            & Synthetic & 500; Gamma \\
+Pick / consolidation time       & Synthetic & 500; Lognormal \\
+Unload / load time per pallet   & Synthetic & 500; Lognormal \\
+Forklift speed, charge time     & Synthetic & Normal / Uniform \\
+Forklift MTBF / MTTR            & Synthetic & 200; Exp. / Lognormal \\
+\end{tabularx}}
+
+% =====================================================
+% \newpage
+\section{Output Measures \& Optimization Goal}
+
+\subsection*{Key Performance Indicators}
+{\small
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\noindent\begin{tabularx}{\columnwidth}{>{\bfseries}P{1.8cm}L}
+\rowcolor{color2!14} Category & KPI \\
+Time        & Shipment cycle time (mean, p95), forklift cycle time \\
+Volume      & Handling volume, system load \\
+Utilisation & Forklifts, workers, docks, storage and pickup areas (\%) \\
+Distance    & Distance travelled by forklifts \\
+Environment & Carbon footprint (forklift energy use) \\
+Congestion  & Buffer overflow, aisle blocking time \\
+\end{tabularx}}
+
+\subsection*{The ``What If'' / Optimization Goal}
+{\small
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\noindent\begin{tabularx}{\columnwidth}{>{\bfseries}P{2.9cm}L}
+\rowcolor{color2!14} Input parameter & Levels \\
+Number of forklifts        & Minimum feasible to saturation \\
+Number of workers          & Per role: receiving, picking, loading \\
+Forklift performance       & Standard vs.\ high-speed \\
+Number of docks            & 12, 18, 24 (inbound / outbound split) \\
+Picking strategy           & Single order, batch, zone \\
+Loading strategy           & FIFO, by destination, by due slot \\
+Shipment volume            & Baseline, +20\%, +40\% \\
+\rowcolor{color2!14} Design criterion & Levels \\
+Layout form                & I, L, T; any shape via generation \\
+Storage allotment          & Random, ABC near docks, SKU zones \\
+Pickup allotment           & Near outbound docks, centralised \\
+Material flow, paths       & One-way, two-way aisles \\
+Buffer capacity            & Low, medium, high \\
+\end{tabularx}}
+
+\vspace{4pt}
+\noindent\colorbox{color2!10}{\parbox{\dimexpr\columnwidth-2\fboxsep\relax}{\small
+\textbf{Optimization goal (OptQuest):} minimise the number of forklifts and workers subject to p95 shipment cycle time $\leq T^{*}$ and zero buffer overflow; then minimise forklift travel distance and carbon footprint through area allotment, path design and strategy choice.}}
+
+\begin{thebibliography}{9}\small
+\bibitem{wsc} L. Jurgeleit, M. Mowe, M. Kiefer, C. Schumacher, and U. Clausen. Automatic model generation for discrete event simulation of less-than-truckload terminals. \textit{Proc.\ Winter Simulation Conference}, 1493--1504, 2024.
+\end{thebibliography}
+
+\end{document}
